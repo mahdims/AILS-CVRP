@@ -40,9 +40,10 @@ public class AILSII
 	Random rand=new Random();
 	
 	HashMap<String,OmegaAdjustment>omegaSetup=new HashMap<String,OmegaAdjustment>();
+	HashMap<String,Integer>perturbationUsageCount=new HashMap<String,Integer>();
 
 	double distanceLS;
-	
+
 	Perturbation[] pertubOperators;
 	Perturbation selectedPerturbation;
 	
@@ -94,10 +95,11 @@ public class AILSII
 		this.constructSolution=new ConstructSolution(instance,config);
 		
 		OmegaAdjustment newOmegaAdjustment;
-		for (int i = 0; i < config.getPerturbation().length; i++) 
+		for (int i = 0; i < config.getPerturbation().length; i++)
 		{
 			newOmegaAdjustment=new OmegaAdjustment(config.getPerturbation()[i], config,instance.getSize(),idealDist);
 			omegaSetup.put(config.getPerturbation()[i]+"", newOmegaAdjustment);
+			perturbationUsageCount.put(config.getPerturbation()[i]+"", 0);
 		}
 		
 		this.acceptanceCriterion=new AcceptanceCriterion(instance,config,executionMaximumLimit);
@@ -134,8 +136,10 @@ public class AILSII
 			iterator++;
 
 			solution.clone(referenceSolution);
-			
+
 			selectedPerturbation=pertubOperators[rand.nextInt(pertubOperators.length)];
+			String perturbName = selectedPerturbation.getPerturbationType()+"";
+			perturbationUsageCount.put(perturbName, perturbationUsageCount.get(perturbName) + 1);
 			selectedPerturbation.applyPerturbation(solution);
 			feasibilityOperator.makeFeasible(solution);
 			localSearch.localSearch(solution,true);
@@ -149,10 +153,20 @@ public class AILSII
 			if(acceptanceCriterion.acceptSolution(solution))
 				referenceSolution.clone(solution);
 		}
-		
+
 		totalTime=(double)(System.currentTimeMillis()-first)/1000;
+		printPerturbationUsageSummary();
 	}
-	
+
+	public void printPerturbationUsageSummary()
+	{
+		System.out.println("\nPerturbation usage: " +
+			"Sequential=" + perturbationUsageCount.getOrDefault("Sequential", 0) +
+			" Concentric=" + perturbationUsageCount.getOrDefault("Concentric", 0) +
+			" SISR=" + perturbationUsageCount.getOrDefault("SISR", 0) +
+			" (total=" + iterator + " iterations)");
+	}
+
 	public void evaluateSolution()
 	{
 		if((solution.f-bestF)<-epsilon)

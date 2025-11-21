@@ -106,6 +106,7 @@ public class SISR extends Perturbation {
 		setSolution(s);
 		resetBuffers();
 		applySISRRuin();
+		addCandidates();  // Call recreate phase!
 		assignSolution(s);
 	}
 
@@ -495,9 +496,29 @@ public class SISR extends Perturbation {
 			}
 
 			// Lines 13-14: Insert at best position
+			// If no valid position found, force insert anyway (feasibility phase will fix violations)
 			if (!insertCustomerAtPosition(customer, bestPos)) {
-				// Failed to insert - keep in absent list
-				sisrAbsent.add(customer);
+				// Force insert at cheapest position, ignoring capacity
+				InsertionPosition forcedPos = findBestInsertionPositionIgnoringCapacity(customer);
+				if (!insertCustomerAtPosition(customer, forcedPos)) {
+					// Still failed - create new route (should rarely happen)
+					if (numRoutes < instance.getMaxNumberRoutes()) {
+						createNewRouteWithCustomer(customer);
+					} else {
+						// Absolute fallback: insert in first route
+						f += routes[0].addAfter(customer, routes[0].first);
+						sisrInsertionStack.add(customer);
+					}
+				}
+			}
+		}
+
+		// Validation: Ensure all customers are in routes
+		for (int i = 0; i < size; i++) {
+			if (solution[i].route == null) {
+				// Emergency: force insert this customer
+				System.err.println("WARNING: Customer " + solution[i].name + " not in any route after SISR recreate!");
+				f += routes[0].addAfter(solution[i], routes[0].first);
 			}
 		}
 	}
@@ -624,6 +645,44 @@ public class SISR extends Perturbation {
 	}
 
 	/**
+	 * Find best insertion position ignoring capacity constraints
+	 * Used as fallback to ensure all customers are reinserted
+	 */
+	private InsertionPosition findBestInsertionPositionIgnoringCapacity(Node customer) {
+		InsertionPosition best = new InsertionPosition();
+
+		// Try each route
+		for (int routeIdx = 0; routeIdx < numRoutes; routeIdx++) {
+			Route route = routes[routeIdx];
+
+			// Try all positions in route
+			Node current = route.first;
+			int position = 0;
+
+			do {
+				// Calculate insertion cost
+				double deltaCost = instance.dist(current.name, customer.name) +
+				                  instance.dist(customer.name, current.next.name) -
+				                  instance.dist(current.name, current.next.name);
+
+				// Update best
+				if (deltaCost < best.cost) {
+					best.cost = deltaCost;
+					best.routeIdx = routeIdx;
+					best.position = position;
+					best.insertAfter = current;
+					best.valid = true;
+				}
+
+				current = current.next;
+				position++;
+			} while (current != route.first);
+		}
+
+		return best;
+	}
+
+	/**
 	 * Insert customer at specified position - Algorithm 3, Lines 13-14
 	 */
 	private boolean insertCustomerAtPosition(Node customer, InsertionPosition insertPos) {
@@ -643,7 +702,7 @@ public class SISR extends Perturbation {
 	 */
 	private void createNewRouteWithCustomer(Node customer) {
 		// Find depot node
-		Node depot = solution[0];  // Depot is always first
+		Node depot = routes[0].first;  // Depot is first node in any route
 
 		// Create new route
 		Route newRoute = new Route(instance, config, depot, numRoutes);

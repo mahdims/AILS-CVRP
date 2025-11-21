@@ -38,9 +38,10 @@ public class Config implements Cloneable
 		this.etaMin=0.01;
 		this.etaMax=1;
 		
-		this.perturbation=new PerturbationType[2];
+		this.perturbation=new PerturbationType[3];
 		this.perturbation[0]=PerturbationType.Sequential;
 		this.perturbation[1]=PerturbationType.Concentric;
+		this.perturbation[2]=PerturbationType.SISR;
 		
 		this.insertionHeuristics=new InsertionHeuristic[2];
 		insertionHeuristics[0]=InsertionHeuristic.Distance;
