@@ -146,7 +146,7 @@ public class SISR extends Perturbation {
 		Set<Integer> ruinedRoutes = new HashSet<>();
 		int routesProcessed = 0;
 
-		// Line 5: for c ∈ adj(c_s^seed) and |R| < k_s do
+		// Line 5: for c in adj(c_s^seed) and |R| < k_s do
 		// *** USE EXISTING KNN STRUCTURE ***
 		if (seedCustomer > 0 && seedCustomer <= solution.length) {
 			Node seedNode = solution[seedCustomer - 1];
@@ -158,15 +158,15 @@ public class SISR extends Perturbation {
 
 				int neighbor = adjList[i];
 
-				// Line 6: if c ∉ A and t ∉ R then
+				// Line 6: if c not in A and t not in R then
 				if (neighbor == 0) continue;  // Skip depot
 				if (neighbor > solution.length) continue;
 
 				Node neighborNode = solution[neighbor - 1];
-				if (!neighborNode.nodeBelong) continue;  // c ∈ A (already removed)
+				if (!neighborNode.nodeBelong) continue;  // c in A (already removed)
 
 				Route neighborRoute = neighborNode.route;
-				if (ruinedRoutes.contains(neighborRoute.nameRoute)) continue; // t ∈ R
+				if (ruinedRoutes.contains(neighborRoute.nameRoute)) continue; // t in R
 
 				// Lines 7-10: Process this route
 				if (processRouteRemoval(neighborRoute, neighbor, params, ruinedRoutes)) {
@@ -179,7 +179,7 @@ public class SISR extends Perturbation {
 	/**
 	 * Calculate SISR parameters - Equations 5-7 from paper
 	 * Equation 5: ell_s_max = min{Lmax, avg_cardinality}
-	 * Equation 6: k_s_max = floor(4*c̄/(1+ell_s_max)) - 1
+	 * Equation 6: k_s_max = floor(4*c_bar/(1+ell_s_max)) - 1
 	 * Equation 7: k_s = floor(U(1, k_s_max+1))
 	 */
 	private SISRParams calculateSISRParameters() {
@@ -207,9 +207,10 @@ public class SISR extends Perturbation {
 		double avgCardinality = sumCardinality / numNonEmpty;
 		params.ell_s_max = Math.min(sisrConfig.maxStringLength, avgCardinality);
 
-		// ===== EQUATION 6: k_s_max = floor(4*c̄/(1+ell_s_max)) - 1 =====
-		// NOTE: Use omega (inherited from Perturbation) instead of avgRemoved
-		double k_s_max = Math.floor(4.0 * omega / (1.0 + params.ell_s_max)) - 1;
+		// ===== EQUATION 6: k_s_max = floor(4*c_bar/(1+ell_s_max)) - 1 =====
+		// Calculate c_bar (avgRemoved) from percentage of total nodes
+		double avgRemoved = size * sisrConfig.avgRemovedPercent;
+		double k_s_max = Math.floor(4.0 * avgRemoved / (1.0 + params.ell_s_max)) - 1;
 
 		// ===== EQUATION 7: k_s = floor(U(1, k_s_max+1)) =====
 		if (k_s_max < 1) {
@@ -342,7 +343,7 @@ public class SISR extends Perturbation {
 		if (m_max < 0) m_max = 0;
 
 		int m = 1;
-		// CORRECTED LOGIC: Continue while m < m_max AND U(0,1) ≤ β
+		// CORRECTED LOGIC: Continue while m < m_max AND U(0,1) <= beta
 		while (m < m_max && rand.nextDouble() <= sisrConfig.splitDepth) {
 			m++;
 		}
@@ -615,7 +616,7 @@ public class SISR extends Perturbation {
 
 			do {
 				// *** BLINK RATE (Line 7) ***
-				// "With probability γ, the position is skipped"
+				// "With probability gamma, the position is skipped"
 				if (rand.nextDouble() < sisrConfig.blinkRate) {
 					current = current.next;
 					position++;
@@ -716,5 +717,66 @@ public class SISR extends Perturbation {
 
 		// Track insertion
 		sisrInsertionStack.add(customer);
+	}
+
+	// ========== PUBLIC ACCESSORS FOR FLEET MINIMIZATION ==========
+
+	/**
+	 * Get the list of absent customer IDs (for fleet minimization)
+	 * @return List of customer IDs that are currently absent
+	 */
+	public List<Integer> getAbsentCustomerIds() {
+		List<Integer> ids = new ArrayList<>();
+		for (Node node : sisrAbsent) {
+			ids.add(node.name);
+		}
+		return ids;
+	}
+
+	/**
+	 * Check if there are any absent customers
+	 * @return true if sisrAbsent is empty (all customers in routes)
+	 */
+	public boolean hasAbsentCustomers() {
+		return !sisrAbsent.isEmpty();
+	}
+
+	/**
+	 * Apply only SISR ruin phase on a solution
+	 * Public version for fleet minimization use
+	 * @param s Solution to apply ruin to
+	 */
+	public void applyRuinOnly(Solution s) {
+		setSolution(s);
+		resetBuffers();
+
+		// Preserve pre-existing absent customers from the solution
+		// (e.g., from route removal in fleet minimization)
+		for (int custId : s.getSisrAbsent()) {
+			if (custId > 0 && custId <= solution.length) {
+				Node node = solution[custId - 1];
+				sisrAbsent.add(node);
+			}
+		}
+
+		applySISRRuin();
+	}
+
+	/**
+	 * Apply only SISR recreate phase on a solution
+	 * Public version for fleet minimization use
+	 * @param s Solution to apply recreate to
+	 */
+	public void applyRecreateOnly(Solution s) {
+		setSolution(s);
+		applySISRRecreate();
+		assignSolution(s);
+
+		// Update solution's sisrAbsent to match SISR's internal absent list
+		List<Integer> absentIds = new ArrayList<>();
+		for (Node node : sisrAbsent) {
+			absentIds.add(node.name);
+		}
+		s.setSisrAbsent(absentIds);
 	}
 }

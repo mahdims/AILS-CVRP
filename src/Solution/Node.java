@@ -20,18 +20,20 @@ public class Node implements Cloneable
 	Point point;
 	Instance instance;
 	public boolean modified;
+	public int absenceCounter;
 	
 	public int nameDestinyRoute;
 	public int nameOriginRoute;
 	public int priority;
 	public Route destinyRoute;
 	
-	public Node(Point point, Instance instance) 
+	public Node(Point point, Instance instance)
 	{
 		this.point=point;
 		this.instance=instance;
 		this.name = point.name;
 		this.demand = point.demand;
+		this.absenceCounter = 0;
 
 		this.next=null;
 		this.prev=null;

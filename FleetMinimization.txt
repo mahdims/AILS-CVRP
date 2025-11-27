@@ -1,0 +1,87 @@
+// Fleet minimization (Algorithm 4)
+Solution Solution::fleetMinimisationSISR(const SISRConfig &config, int maxIterations)
+{
+    size_t initialRoutes = routes.size();
+
+    // Line 2: s^best ← s
+    Solution sBest = *this;
+    size_t minRoutes = sBest.routes.size();
+
+    // Lines 3-4: Initialize absence counters to 0 for all customers
+    for (int c = 1; c <= no_customers; c++)
+    {
+        data->customers[c].absenceCounter = 0;
+    }
+
+    // Line 5: while minimising tours do
+    Solution s = *this;
+    for (int iter = 0; iter < maxIterations; iter++)
+    {
+        // Line 6: s* ← SISRs-RUIN-RECREATE(s)
+        Solution sStar = s;
+
+        // Apply SISR ruin
+        sStar.applySISRRuin(config);
+
+        // Apply SISR recreate if there are absent customers
+        if (!sStar.getSisrAbsent().empty())
+        {
+            sStar.applySISRRecreate(config);
+        }
+
+        // Get absent sets
+        const vector<int> &A = s.getSisrAbsent();
+        const vector<int> &AStar = sStar.getSisrAbsent();
+
+        // Line 7: if |A*| < |A| or sumAbs(A*) < sumAbs(A) then
+        int sumAbsA = s.calculateAbsentCustomersSumAbs(A);
+        int sumAbsAStar = s.calculateAbsentCustomersSumAbs(AStar);
+
+        if (AStar.size() < A.size() || sumAbsAStar < sumAbsA)
+        {
+            // Line 8: s ← s*
+            s = sStar;
+        }
+
+        // Line 9: if A* = ∅ then (feasible solution)
+        if (AStar.empty())
+        {
+            // Line 10: Update s^best only if fewer routes or same routes with better fitness
+            if (sStar.routes.size() < minRoutes ||
+                (sStar.routes.size() == minRoutes && sStar.fitness < sBest.fitness))
+            {
+                sBest = sStar;
+                minRoutes = sBest.routes.size();
+            }
+
+            // Line 11: remove t ∈ T with the lowest sumAbs(t)
+            int routeToRemove = s.findRouteWithLowestSumAbs();
+            if (routeToRemove >= 0)
+            {
+                s.removeRouteToAbsent(routeToRemove);
+            }
+            else
+            {
+                // No more routes to remove
+                break;
+            }
+        }
+
+        // Lines 12-13: for c ∈ A* do: abs_c ← abs_c + 1
+        for (int c : AStar)
+        {
+            if (c > 0 && c <= no_customers)
+            {
+                data->customers[c].absenceCounter++;
+            }
+        }
+    }
+
+    // Log summary only if routes were reduced
+    if (sBest.routes.size() < initialRoutes)
+    {
+        Logger::info("Fleet Minimization: Reduced routes from ", initialRoutes, " to ", sBest.routes.size());
+    }
+
+    return sBest;
+}

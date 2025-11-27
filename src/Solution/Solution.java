@@ -3,18 +3,22 @@ package Solution;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import Data.File;
 import Data.Instance;
 import Data.Point;
 import Improvement.IntraLocalSearch;
+import Perturbation.SISR;
+import Perturbation.SISRConfig;
 import SearchMethod.Config;
 
 public class Solution
 {
 	private Point points[];
 	Instance instance;
-	Config config;
+	public Config config;
 	protected int size;
 	Node solution[];
 
@@ -32,6 +36,9 @@ public class Solution
 
 	IntraLocalSearch intraLocalSearch;
 
+	// Fleet minimization: list of absent customer IDs (not currently in any route)
+	private List<Integer> sisrAbsent;
+
 	public Solution(Instance instance, Config config)
 	{
 		this.instance = instance;
@@ -46,6 +53,7 @@ public class Solution
 		this.numRoutesMax = instance.getMaxNumberRoutes();
 		this.depot = new Node(points[depot], instance);
 		this.epsilon = config.getEpsilon();
+		this.sisrAbsent = new ArrayList<>();
 
 		this.routes = new Route[numRoutesMax];
 
@@ -67,6 +75,10 @@ public class Solution
 	{
 		this.numRoutes = reference.numRoutes;
 		this.f = reference.f;
+
+		// Clone sisrAbsent list
+		this.sisrAbsent.clear();
+		this.sisrAbsent.addAll(reference.sisrAbsent);
 
 		for(int i = 0; i < routes.length; i++)
 		{
@@ -98,18 +110,30 @@ public class Solution
 
 		for(int i = 0; i < solution.length; i++)
 		{
-			solution[i].route = routes[reference.solution[i].route.nameRoute];
 			solution[i].nodeBelong = reference.solution[i].nodeBelong;
 
-			if(reference.solution[i].prev.name == 0)
-				solution[i].prev = routes[reference.solution[i].prev.route.nameRoute].first;
-			else
-				solution[i].prev = solution[reference.solution[i].prev.name - 1];
+			// Handle nodes that are not in any route (absent customers in fleet minimization)
+			if (reference.solution[i].route != null)
+			{
+				solution[i].route = routes[reference.solution[i].route.nameRoute];
 
-			if(reference.solution[i].next.name == 0)
-				solution[i].next = routes[reference.solution[i].next.route.nameRoute].first;
+				if(reference.solution[i].prev.name == 0)
+					solution[i].prev = routes[reference.solution[i].prev.route.nameRoute].first;
+				else
+					solution[i].prev = solution[reference.solution[i].prev.name - 1];
+
+				if(reference.solution[i].next.name == 0)
+					solution[i].next = routes[reference.solution[i].next.route.nameRoute].first;
+				else
+					solution[i].next = solution[reference.solution[i].next.name - 1];
+			}
 			else
-				solution[i].next = solution[reference.solution[i].next.name - 1];
+			{
+				// Node is not in any route (absent customer)
+				solution[i].route = null;
+				solution[i].prev = null;
+				solution[i].next = null;
+			}
 		}
 	}
 
@@ -372,6 +396,369 @@ public class Solution
 		File arq = new File(end);
 		arq.write(this.toString());
 		arq.close();
+	}
+
+	// ========== FLEET MINIMIZATION METHODS (Algorithm 4) ========== 
+
+	/**
+	 * Fleet minimization using SISR-based ruin-recreate
+	 * Translated from C++ Algorithm 4: fleetMinimisationSISR
+	 * Uses real SISR implementation from SISR.java
+	 *
+	 * @param sisrOperator SISR operator instance to use for ruin/recreate
+	 * @param maxIterations Maximum iterations for fleet minimization
+	 * @return Best solution with minimum routes
+	 */
+	public Solution fleetMinimisationSISR(SISR sisrOperator, int maxIterations)
+	{
+		int initialRoutes = numRoutes;
+
+		// Line 2: s^best <- s
+		Solution sBest = new Solution(instance, config);
+		sBest.clone(this);
+		int minRoutes = sBest.numRoutes;
+
+		// Lines 3-4: Initialize absence counters to 0 for all customers
+		for (int c = 0; c < size; c++)
+		{
+			solution[c].absenceCounter = 0;
+		}
+
+		// Line 5: while minimising tours do
+		Solution s = new Solution(instance, config);
+		s.clone(this);
+
+		for (int iter = 0; iter < maxIterations; iter++)
+		{
+			// Line 6: s* <- SISRs-RUIN-RECREATE(s)
+			Solution sStar = new Solution(instance, config);
+			sStar.clone(s);
+
+			// Apply SISR ruin using real SISR implementation
+			sisrOperator.applyRuinOnly(sStar);
+
+			// Apply SISR recreate if there are absent customers
+			if (sisrOperator.hasAbsentCustomers())
+			{
+				sisrOperator.applyRecreateOnly(sStar);
+			}
+
+			// Get absent sets using real SISR implementation
+			List<Integer> A = s.getSisrAbsent();
+			List<Integer> AStar = sisrOperator.getAbsentCustomerIds();
+
+			// Line 7: if |A*| < |A| or sumAbs(A*) < sumAbs(A) then
+			int sumAbsA = s.calculateAbsentCustomersSumAbs(A);
+			int sumAbsAStar = s.calculateAbsentCustomersSumAbs(AStar);
+
+			if (AStar.size() < A.size() || sumAbsAStar < sumAbsA)
+			{
+				// Line 8: s <- s*
+				s.clone(sStar);
+			}
+
+			// Line 9: if A* = empty set then (feasible solution - all customers are in routes)
+			if (AStar.isEmpty())
+			{
+				// Line 10: Update s^best only if fewer routes or same routes with better fitness
+				if (sStar.numRoutes < minRoutes ||
+					(sStar.numRoutes == minRoutes && sStar.f < sBest.f))
+				{
+					sBest.clone(sStar);
+					minRoutes = sBest.numRoutes;
+				}
+
+				// Line 11: remove t in T with the lowest sumAbs(t)
+				// Only remove routes if we have more than the minimum
+				if (s.numRoutes > s.numRoutesMin)
+				{
+					int routeToRemove = s.findRouteWithLowestSumAbs();
+					if (routeToRemove >= 0)
+					{
+						s.removeRouteToAbsent(routeToRemove);
+					}
+					else
+					{
+						// No more routes to remove
+						break;
+					}
+				}
+				else
+				{
+					// Already at minimum routes, stop
+					break;
+				}
+			}
+
+			// Lines 12-13: for c in A* do: abs_c <- abs_c + 1
+			for (int custId : AStar)
+			{
+				if (custId > 0 && custId <= size)
+				{
+					solution[custId - 1].absenceCounter++;
+				}
+			}
+		}
+
+		// Verify all customers are properly in routes by direct count
+		int customersInRoutes = 0;
+		for (int r = 0; r < sBest.numRoutes; r++)
+		{
+			Node current = sBest.routes[r].first.next;
+			while (current != sBest.routes[r].first)
+			{
+				if (current.name > 0)
+				{
+					customersInRoutes++;
+				}
+				current = current.next;
+			}
+		}
+
+		boolean allCustomersInRoutes = (customersInRoutes == size);
+
+		// If not all customers are in routes, fleet minimization failed - return original
+		if (!allCustomersInRoutes)
+		{
+			System.out.println("Fleet Minimization failed to produce valid solution (missing customers), keeping original");
+			return this;
+		}
+
+		// Ensure sisrAbsent is clear
+		sBest.sisrAbsent.clear();
+
+		// Log summary only if routes were reduced
+		if (sBest.numRoutes < initialRoutes)
+		{
+			System.out.println("Fleet Minimization: Reduced routes from " + initialRoutes + " to " + sBest.numRoutes);
+		}
+
+		return sBest;
+	}
+
+	/**
+	 * Get list of absent customer IDs (SISR ruin phase)
+	 */
+	public List<Integer> getSisrAbsent()
+	{
+		return sisrAbsent;
+	}
+
+	/**
+	 * Set list of absent customer IDs
+	 */
+	public void setSisrAbsent(List<Integer> absent)
+	{
+		this.sisrAbsent = absent;
+	}
+
+	/**
+	 * Apply SISR ruin phase - remove customers from routes
+	 * Simplified version that removes random customers from random routes
+	 */
+	public void applySISRRuin(SISRConfig sisrConfig)
+	{
+		sisrAbsent.clear();
+
+		// Calculate number of customers to remove (based on avgRemovedPercent)
+		int numToRemove = Math.max(1, (int)(size * sisrConfig.getAvgRemovedPercent()));
+
+		// Select random customers to remove
+		List<Integer> candidates = new ArrayList<>();
+		for (int i = 0; i < size; i++)
+		{
+			if (solution[i].nodeBelong)
+			{
+				candidates.add(i);
+			}
+		}
+
+		// Shuffle and remove
+		java.util.Collections.shuffle(candidates);
+		int removed = 0;
+
+		for (int i = 0; i < candidates.size() && removed < numToRemove; i++)
+		{
+			int idx = candidates.get(i);
+			Node node = solution[idx];
+
+			if (node.nodeBelong && node.route != null)
+			{
+				// Remove from route
+				f += node.route.remove(node);
+				sisrAbsent.add(node.name); // Store customer ID, not Node
+				removed++;
+			}
+		}
+	}
+
+	/**
+	 * Apply SISR recreate phase - reinsert absent customers
+	 */
+	public void applySISRRecreate(SISRConfig sisrConfig)
+	{
+		if (sisrAbsent.isEmpty()) return;
+
+		// Copy to working list
+		List<Integer> pending = new ArrayList<>(sisrAbsent);
+		sisrAbsent.clear();
+
+		// Shuffle for random insertion order
+		java.util.Collections.shuffle(pending);
+
+		// Try to reinsert each customer
+		for (Integer custId : pending)
+		{
+			if (custId <= 0 || custId > size) continue;
+
+			Node customer = solution[custId - 1];
+			double bestCost = Double.MAX_VALUE;
+			Route bestRoute = null;
+			Node bestInsertAfter = null;
+			boolean foundFeasible = false;
+
+			// First pass: try to find feasible insertion (respecting capacity)
+			for (int r = 0; r < numRoutes; r++)
+			{
+				Route route = routes[r];
+
+				// Check capacity
+				if (route.totalDemand + customer.demand > capacity)
+				{
+					continue;
+				}
+
+				// Try all positions in route
+				Node current = route.first;
+				do
+				{
+					double deltaCost = instance.dist(current.name, customer.name) +
+									  instance.dist(customer.name, current.next.name) -
+									  instance.dist(current.name, current.next.name);
+
+					if (deltaCost < bestCost)
+					{
+						bestCost = deltaCost;
+						bestRoute = route;
+						bestInsertAfter = current;
+						foundFeasible = true;
+					}
+
+					current = current.next;
+				} while (current != route.first);
+			}
+
+			// If no feasible position found, try creating new route
+			if (!foundFeasible && numRoutes < numRoutesMax)
+			{
+				// Create new route with this customer
+				Route newRoute = routes[numRoutes];
+				newRoute.totalDemand = 0;
+				newRoute.fRoute = 0;
+				newRoute.numElements = 1; // depot only
+				newRoute.first.next = newRoute.first;
+				newRoute.first.prev = newRoute.first;
+
+				f += newRoute.addAfter(customer, newRoute.first);
+				numRoutes++;
+				foundFeasible = true;
+			}
+			else if (foundFeasible && bestRoute != null)
+			{
+				// Insert at best position
+				f += bestRoute.addAfter(customer, bestInsertAfter);
+			}
+			else
+			{
+				// No feasible position and can't create new route - add back to absent list
+				sisrAbsent.add(custId);
+			}
+		}
+	}
+
+	/**
+	 * Calculate sum of absence counters for given customers
+	 */
+	public int calculateAbsentCustomersSumAbs(List<Integer> absentIds)
+	{
+		int sum = 0;
+		for (int custId : absentIds)
+		{
+			if (custId > 0 && custId <= size)
+			{
+				sum += solution[custId - 1].absenceCounter;
+			}
+		}
+		return sum;
+	}
+
+	/**
+	 * Find route with lowest sum of absence counters
+	 * Returns route index, or -1 if no routes available
+	 * Matches C++ implementation
+	 */
+	public int findRouteWithLowestSumAbs()
+	{
+		if (numRoutes == 0) return -1;
+
+		int bestRouteIdx = -1;
+		int lowestSum = Integer.MAX_VALUE;
+
+		for (int r = 0; r < numRoutes; r++)
+		{
+			// Skip empty routes (numElements=1 means only depot)
+			if (routes[r].numElements <= 1)
+				continue;
+
+			int sum = routes[r].calculateSumAbsenceCounters();
+			if (sum < lowestSum)
+			{
+				lowestSum = sum;
+				bestRouteIdx = r;
+			}
+		}
+
+		return bestRouteIdx;
+	}
+
+	/**
+	 * Remove a route and add all its customers to absent list
+	 * Matches C++ implementation: adds customer IDs to sisrAbsent
+	 */
+	public void removeRouteToAbsent(int routeIndex)
+	{
+		if (routeIndex < 0 || routeIndex >= numRoutes) return;
+
+		Route route = routes[routeIndex];
+
+		// Collect all customer nodes from this route
+		List<Node> customersToRemove = new ArrayList<>();
+		Node current = route.first.next;
+		while (current != route.first)
+		{
+			if (current.name > 0)
+			{
+				customersToRemove.add(current);
+			}
+			current = current.next;
+		}
+
+		// Properly remove each node from the route (sets nodeBelong=false, updates pointers)
+		for (Node customer : customersToRemove)
+		{
+			f += route.remove(customer);
+			sisrAbsent.add(customer.name); // Add customer ID to absent list
+		}
+
+		// Remove the now-empty route (equivalent to C++ routes.erase)
+		removeRoute(routeIndex);
+
+		// Recalculate fitness (equivalent to C++ cal_fitness())
+		f = 0;
+		for (int r = 0; r < numRoutes; r++)
+		{
+			f += routes[r].fRoute;
+		}
 	}
 
 }

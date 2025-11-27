@@ -22,6 +22,10 @@ public class Config implements Cloneable
 	int knnLimit;
 	StoppingCriterionType stoppingCriterionType;
 	SISRConfig sisrConfig;
+
+	//--------------------Fleet Minimization-------------------
+	double fleetMinimizationRate;
+	int fleetMinimizationMaxIter;
 	
 	public Config() 
 	{
@@ -48,6 +52,9 @@ public class Config implements Cloneable
 		insertionHeuristics[1]=InsertionHeuristic.Cost;
 
 		this.sisrConfig=new SISRConfig();
+
+		this.fleetMinimizationRate=0.01;
+		this.fleetMinimizationMaxIter=100;
 	}
 	
 	public Config clone()
@@ -61,7 +68,7 @@ public class Config implements Cloneable
 	}
 	
 	@Override
-	public String toString() 
+	public String toString()
 	{
 		return "Config "
 		+"\nstoppingCriterionType: "+stoppingCriterionType
@@ -76,7 +83,32 @@ public class Config implements Cloneable
 		+"\ninsertionHeuristics: "+Arrays.toString(insertionHeuristics)
 		+"\nlimitKnn: "+knnLimit
 		+"\nSISR: "+sisrConfig
-		;  
+		+"\nfleetMinimizationRate: "+deci.format(fleetMinimizationRate)
+		+"\nfleetMinimizationMaxIter: "+fleetMinimizationMaxIter
+		;
+	}
+
+	/**
+	 * toString with parameter source tracking
+	 */
+	public String toString(java.util.HashMap<String, String> sources)
+	{
+		return "Config "
+		+"\nstoppingCriterionType: "+stoppingCriterionType + " (" + sources.getOrDefault("stoppingCriterion", "default") + ")"
+		+"\netaMax: "+deci.format(etaMax) + " (" + sources.getOrDefault("etaMax", "default") + ")"
+		+"\netaMin: "+deci.format(etaMin) + " (" + sources.getOrDefault("etaMin", "default") + ")"
+		+"\ngamma: "+gamma + " (" + sources.getOrDefault("gamma", "default") + ")"
+		+"\ndMin: "+dMin + " (" + sources.getOrDefault("dMin", "default") + ")"
+		+"\ndMax: "+dMax + " (" + sources.getOrDefault("dMax", "default") + ")"
+		+"\nvarphi: "+varphi + " (" + sources.getOrDefault("varphi", "default") + ")"
+		+"\nepsilon: " + deci.format(epsilon) + " (" + sources.getOrDefault("epsilon", "default") + ")"
+		+"\nperturbation: "+Arrays.toString(perturbation) + " (" + sources.getOrDefault("perturbation", "default") + ")"
+		+"\ninsertionHeuristics: "+Arrays.toString(insertionHeuristics) + " (" + sources.getOrDefault("insertionHeuristics", "default") + ")"
+		+"\nlimitKnn: "+knnLimit + " (" + sources.getOrDefault("knnLimit", "default") + ")"
+		+"\nSISR: "+sisrConfig.toString(sources)
+		+"\nfleetMinimizationRate: "+deci.format(fleetMinimizationRate) + " (" + sources.getOrDefault("fleetMinimizationRate", "default") + ")"
+		+"\nfleetMinimizationMaxIter: "+fleetMinimizationMaxIter + " (" + sources.getOrDefault("fleetMinimizationMaxIter", "default") + ")"
+		;
 	}
 
 	public DecimalFormat getDeci() {
@@ -185,6 +217,22 @@ public class Config implements Cloneable
 
 	public void setSisrConfig(SISRConfig sisrConfig) {
 		this.sisrConfig = sisrConfig;
+	}
+
+	public double getFleetMinimizationRate() {
+		return fleetMinimizationRate;
+	}
+
+	public void setFleetMinimizationRate(double fleetMinimizationRate) {
+		this.fleetMinimizationRate = fleetMinimizationRate;
+	}
+
+	public int getFleetMinimizationMaxIter() {
+		return fleetMinimizationMaxIter;
+	}
+
+	public void setFleetMinimizationMaxIter(int fleetMinimizationMaxIter) {
+		this.fleetMinimizationMaxIter = fleetMinimizationMaxIter;
 	}
 
 }

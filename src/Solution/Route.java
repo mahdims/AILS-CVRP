@@ -246,10 +246,31 @@ public class Route implements Comparable<Route>
 			return true;
 		return false;
 	}
-	
+
 	public int availableCapacity()
 	{
 		return capacity-totalDemand;
+	}
+
+	/**
+	 * Calculate sum of absence counters for all customers in this route
+	 * Matches C++ implementation for fleet minimization
+	 */
+	public int calculateSumAbsenceCounters()
+	{
+		int sum = 0;
+		Node current = first.next;
+
+		while (current != first)
+		{
+			if (current.name > 0)
+			{
+				sum += current.absenceCounter;
+			}
+			current = current.next;
+		}
+
+		return sum;
 	}
 	
 	public void setIncreaseObjFunction(int increaseObjFunction) {

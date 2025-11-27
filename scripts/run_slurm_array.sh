@@ -5,7 +5,7 @@
 #SBATCH --array=0-99
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=8G
+#SBATCH --mem=16G
 #SBATCH --time=24:20:00
 #
 # AILS-II CVRP Solver - SLURM Job Array Script
