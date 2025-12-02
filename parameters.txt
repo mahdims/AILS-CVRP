@@ -57,3 +57,18 @@ fleetMinimizationRate=0.001
 
 # Maximum iterations for fleet minimization phase
 fleetMinimizationMaxIter=200
+
+# ============================================================
+# Elite Set Parameters
+# ============================================================
+
+# Maximum number of solutions in elite set
+eliteSetSize=10
+
+# Diversity weight in combined score (0 = only quality, 1 = only diversity)
+# Recommended: 0.2-0.4 for balanced quality-diversity tradeoff
+eliteSetBeta=0.2
+
+# Minimum diversity threshold to accept a solution (0.0-1.0)
+# Solutions with diversity below this threshold are rejected
+eliteSetMinDiversity=0.15

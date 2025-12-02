@@ -274,6 +274,9 @@ public class InputParameters
 		parameterSources.put("sisr.blinkRate", "default");
 		parameterSources.put("fleetMinimizationRate", "default");
 		parameterSources.put("fleetMinimizationMaxIter", "default");
+		parameterSources.put("eliteSetSize", "default");
+		parameterSources.put("eliteSetBeta", "default");
+		parameterSources.put("eliteSetMinDiversity", "default");
 	}
 
 	/**
@@ -389,6 +392,20 @@ public class InputParameters
 					break;
 				case "fleetMinimizationMaxIter":
 					config.setFleetMinimizationMaxIter(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+
+				// Elite Set parameters
+				case "eliteSetSize":
+					config.setEliteSetSize(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "eliteSetBeta":
+					config.setEliteSetBeta(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "eliteSetMinDiversity":
+					config.setEliteSetMinDiversity(Double.parseDouble(value));
 					parameterSources.put(key, source);
 					break;
 

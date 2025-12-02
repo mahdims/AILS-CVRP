@@ -11,6 +11,7 @@ import DiversityControl.DistAdjustment;
 import DiversityControl.OmegaAdjustment;
 import DiversityControl.AcceptanceCriterion;
 import DiversityControl.IdealDist;
+import EliteSet.EliteSet;
 import Improvement.LocalSearch;
 import Improvement.IntraLocalSearch;
 import Improvement.FeasibilityPhase;
@@ -18,6 +19,7 @@ import Perturbation.InsertionHeuristic;
 import Perturbation.Perturbation;
 import Perturbation.SISR;
 import Solution.Solution;
+import PathRelinking.PathRelinkingThread;
 
 public class AILSII {
 	// ----------Problema------------
@@ -52,6 +54,16 @@ public class AILSII {
 
 	// SISR operator dedicated for fleet minimization
 	SISR sisrForFleetMin;
+
+	// Elite Set for maintaining diverse high-quality solutions
+	EliteSet eliteSet;
+
+	// Path Relinking thread (runs in parallel)
+	PathRelinkingThread prThread;
+	Thread prThreadHandle;
+
+	// PR->AILS communication: volatile flag for thread-safe signaling
+	private volatile boolean prFoundBetter = false;
 
 	LocalSearch localSearch;
 
@@ -109,6 +121,27 @@ public class AILSII {
 		// Create dedicated SISR operator for fleet minimization
 		this.sisrForFleetMin = new SISR(instance, config, omegaSetup, intraLocalSearch);
 
+		// Initialize Elite Set from config
+		this.eliteSet = new EliteSet(
+				config.getEliteSetSize(),
+				config.getEliteSetBeta(),
+				config.getEliteSetMinDiversity(),
+				instance,
+				config);
+
+		// Initialize Path Relinking thread
+		if (config.getPrConfig().isEnabled()) {
+			IntraLocalSearch prIntraLS = new IntraLocalSearch(instance, config);
+			this.prThread = new PathRelinkingThread(
+					eliteSet,
+					instance,
+					config,
+					config.getPrConfig(),
+					prIntraLS,
+					this // Pass AILSII reference for communication
+			);
+		}
+
 		try {
 			for (int i = 0; i < pertubOperators.length; i++) {
 				this.pertubOperators[i] = (Perturbation) Class.forName("Perturbation." + config.getPerturbation()[i])
@@ -140,11 +173,19 @@ public class AILSII {
 			applyFleetMinimization();
 		}
 
+		// Start Path Relinking thread if enabled
+		if (config.getPrConfig().isEnabled() && prThread != null) {
+			prThreadHandle = new Thread(prThread, "PathRelinkingThread");
+			prThreadHandle.setDaemon(true);
+			prThreadHandle.start();
+			System.out.println("[AILS] Path Relinking thread started");
+		}
+
 		while (!stoppingCriterion()) {
 			iterator++;
 
-			// Apply fleet minimization probabilistically in first 25% of run
-			if (config.getFleetMinimizationRate() > 0 && isInFirstQuarter()) {
+			// Apply fleet minimization probabilistically in first alpha% of run
+			if (config.getFleetMinimizationRate() > 0 && isInFirstaPrecent()) {
 				// Probabilistic application: 0.5% chance per iteration
 				if (rand.nextDouble() < config.getFleetMinimizationRate()) {
 					applyFleetMinimization();
@@ -171,6 +212,20 @@ public class AILSII {
 		}
 
 		totalTime = (double) (System.currentTimeMillis() - first) / 1000;
+
+		// Stop Path Relinking thread
+		if (prThread != null) {
+			System.out.println("[AILS] Stopping Path Relinking thread...");
+			prThread.stop();
+
+			try {
+				prThreadHandle.join(5000); // Wait up to 5 seconds
+				System.out.println("[AILS] Path Relinking thread stopped");
+			} catch (InterruptedException e) {
+				System.err.println("[AILS] Path Relinking thread did not terminate cleanly");
+			}
+		}
+
 		printPerturbationUsageSummary();
 	}
 
@@ -190,15 +245,22 @@ public class AILSII {
 			iteratorMF = iterator;
 			timeAF = (double) (System.currentTimeMillis() - first) / 1000;
 
+			// Try to insert into elite set (pass bestSolution which is already cloned)
+			boolean inserted = eliteSet.tryInsert(bestSolution, bestSolution.f);
+
 			if (print) {
-				System.out.println("solution quality: " + bestF
-						+ " gap: " + deci.format(getGap()) + "%"
-						+ " K: " + solution.numRoutes
-						+ " iteration: " + iterator
-						+ " eta: " + deci.format(acceptanceCriterion.getEta())
-						+ " omega: " + deci.format(selectedPerturbation.omega)
-						+ " time: " + timeAF);
+				System.out.println("[AILS] time:" + deci.format(timeAF) + "s"
+						+ " iter:" + iterator
+						+ " | f:" + bestF
+						+ " gap:" + deci.format(getGap()) + "%"
+						+ " K:" + solution.numRoutes
+						+ " eta:" + deci.format(acceptanceCriterion.getEta())
+						+ " omega:" + deci.format(selectedPerturbation.omega)
+						+ (inserted ? " [Elite+" + eliteSet.size() + "]" : ""));
 			}
+
+			// Update elite set iteration for monitoring
+			eliteSet.updateIteration(iterator);
 		}
 	}
 
@@ -218,18 +280,20 @@ public class AILSII {
 	}
 
 	/**
-	 * Check if we're in the first quarter (25%) of the run
+	 * Check if we're in the first alpha% of the run
 	 * 
-	 * @return true if in first 25% based on iteration or time
+	 * @return true if in first alpha% based on iteration or time
 	 */
-	private boolean isInFirstQuarter() {
+	private boolean isInFirstaPrecent() {
+		float firstaPrecent = 0.15f;
+
 		switch (stoppingCriterionType) {
 			case Iteration:
-				return iterator <= executionMaximumLimit * 0.25;
+				return iterator <= executionMaximumLimit * firstaPrecent;
 
 			case Time:
 				double elapsedTime = (System.currentTimeMillis() - first) / 1000.0;
-				return elapsedTime <= executionMaximumLimit * 0.25;
+				return elapsedTime <= executionMaximumLimit * firstaPrecent;
 		}
 		return false;
 	}
@@ -269,6 +333,10 @@ public class AILSII {
 
 	public Solution getBestSolution() {
 		return bestSolution;
+	}
+
+	public EliteSet getEliteSet() {
+		return eliteSet;
 	}
 
 	public double getBestF() {
@@ -332,6 +400,41 @@ public class AILSII {
 	}
 
 	/**
+	 * Called by PR thread when it finds a solution better than global best
+	 * Thread-safe method for PR->AILS communication
+	 *
+	 * @param prSolution Solution found by PR
+	 * @param prF        Objective value of PR solution
+	 */
+	public synchronized void notifyPRBetterSolution(Solution prSolution, double prF) {
+		if (prF < bestF - epsilon) {
+			// Update best solution
+			bestF = prF;
+			bestSolution.clone(prSolution);
+			referenceSolution.clone(prSolution);
+			iteratorMF = iterator;
+			timeAF = (double) (System.currentTimeMillis() - first) / 1000;
+
+			// Reset omega for all perturbations to ideal distance
+			for (OmegaAdjustment omegaAdj : omegaSetup.values()) {
+				omegaAdj.setActualOmega(idealDist.idealDist);
+			}
+
+			// Set flag for main thread
+			prFoundBetter = true;
+
+			if (print) {
+				System.out.println("[PR->AILS] New best from PR: " + bestF
+						+ " gap: " + deci.format(getGap()) + "%"
+						+ " K: " + prSolution.numRoutes
+						+ " iteration: " + iterator
+						+ " time: " + timeAF
+						+ " [Omega RESET]");
+			}
+		}
+	}
+
+	/**
 	 * Apply fleet minimization to try to reduce the number of routes
 	 * Matches C++ implementation with local search and acceptance criteria
 	 */
@@ -350,7 +453,10 @@ public class AILSII {
 		if (fleetMinResult.numRoutes < referenceSolution.numRoutes) {
 			localSearch.localSearch(fleetMinResult, true);
 		} else {
-			System.out.println("FleetMin(iter " + iterator + ")" + ": No improvement");
+			double currentTime = (double) (System.currentTimeMillis() - first) / 1000;
+			System.out.println("[FleetMin] time:" + deci.format(currentTime) + "s"
+					+ " iter:" + iterator
+					+ " | status:no_improvement");
 			return;
 		}
 
@@ -374,10 +480,14 @@ public class AILSII {
 
 		// One-line output
 		if (print) {
+			double currentTime = (double) (System.currentTimeMillis() - first) / 1000;
 			String routeChange = initialRoutes + "->" + fleetMinResult.numRoutes;
 			String acceptStatus = accepted ? "accepted" : "rejected";
-			System.out.println("FleetMin(iter " + iterator + "): " + routeChange + " routes, " + acceptStatus + ", f="
-					+ deci.format(fleetMinResult.f));
+			System.out.println("[FleetMin] time:" + deci.format(currentTime) + "s"
+					+ " iter:" + iterator
+					+ " | routes:" + routeChange
+					+ " status:" + acceptStatus
+					+ " f:" + deci.format(fleetMinResult.f));
 		}
 	}
 

@@ -6,13 +6,14 @@ import java.util.Arrays;
 import Perturbation.InsertionHeuristic;
 import Perturbation.PerturbationType;
 import Perturbation.SISRConfig;
+import PathRelinking.PathRelinkingConfig;
 
 public class Config implements Cloneable
 {
 	DecimalFormat deci=new DecimalFormat("0.000");
 	double etaMin,etaMax;
-	int dMin,dMax;	
-	
+	int dMin,dMax;
+
 	int gamma;
 	PerturbationType perturbation[];
 	InsertionHeuristic[]insertionHeuristics;
@@ -26,7 +27,15 @@ public class Config implements Cloneable
 	//--------------------Fleet Minimization-------------------
 	double fleetMinimizationRate;
 	int fleetMinimizationMaxIter;
-	
+
+	//--------------------Elite Set-------------------
+	int eliteSetSize;
+	double eliteSetBeta;
+	double eliteSetMinDiversity;
+
+	//--------------------Path Relinking-------------------
+	PathRelinkingConfig prConfig;
+
 	public Config() 
 	{
 //		----------------------------Main----------------------------
@@ -55,6 +64,12 @@ public class Config implements Cloneable
 
 		this.fleetMinimizationRate=0.01;
 		this.fleetMinimizationMaxIter=100;
+
+		this.eliteSetSize=10;
+		this.eliteSetBeta=0.2;
+		this.eliteSetMinDiversity=0.15;
+
+		this.prConfig=new PathRelinkingConfig();
 	}
 	
 	public Config clone()
@@ -85,6 +100,9 @@ public class Config implements Cloneable
 		+"\nSISR: "+sisrConfig
 		+"\nfleetMinimizationRate: "+deci.format(fleetMinimizationRate)
 		+"\nfleetMinimizationMaxIter: "+fleetMinimizationMaxIter
+		+"\neliteSetSize: "+eliteSetSize
+		+"\neliteSetBeta: "+deci.format(eliteSetBeta)
+		+"\neliteSetMinDiversity: "+deci.format(eliteSetMinDiversity)
 		;
 	}
 
@@ -108,6 +126,9 @@ public class Config implements Cloneable
 		+"\nSISR: "+sisrConfig.toString(sources)
 		+"\nfleetMinimizationRate: "+deci.format(fleetMinimizationRate) + " (" + sources.getOrDefault("fleetMinimizationRate", "default") + ")"
 		+"\nfleetMinimizationMaxIter: "+fleetMinimizationMaxIter + " (" + sources.getOrDefault("fleetMinimizationMaxIter", "default") + ")"
+		+"\neliteSetSize: "+eliteSetSize + " (" + sources.getOrDefault("eliteSetSize", "default") + ")"
+		+"\neliteSetBeta: "+deci.format(eliteSetBeta) + " (" + sources.getOrDefault("eliteSetBeta", "default") + ")"
+		+"\neliteSetMinDiversity: "+deci.format(eliteSetMinDiversity) + " (" + sources.getOrDefault("eliteSetMinDiversity", "default") + ")"
 		;
 	}
 
@@ -233,6 +254,38 @@ public class Config implements Cloneable
 
 	public void setFleetMinimizationMaxIter(int fleetMinimizationMaxIter) {
 		this.fleetMinimizationMaxIter = fleetMinimizationMaxIter;
+	}
+
+	public int getEliteSetSize() {
+		return eliteSetSize;
+	}
+
+	public void setEliteSetSize(int eliteSetSize) {
+		this.eliteSetSize = eliteSetSize;
+	}
+
+	public double getEliteSetBeta() {
+		return eliteSetBeta;
+	}
+
+	public void setEliteSetBeta(double eliteSetBeta) {
+		this.eliteSetBeta = eliteSetBeta;
+	}
+
+	public double getEliteSetMinDiversity() {
+		return eliteSetMinDiversity;
+	}
+
+	public void setEliteSetMinDiversity(double eliteSetMinDiversity) {
+		this.eliteSetMinDiversity = eliteSetMinDiversity;
+	}
+
+	public PathRelinkingConfig getPrConfig() {
+		return prConfig;
+	}
+
+	public void setPrConfig(PathRelinkingConfig prConfig) {
+		this.prConfig = prConfig;
 	}
 
 }
