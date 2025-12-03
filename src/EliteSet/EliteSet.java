@@ -145,7 +145,7 @@ public class EliteSet {
             // Insert if candidate is better than solution to be ejected
             if (candidateScore > ejectScore) {
                 removeSolution(ejectIndex);
-                insertSolution(candidate, candidateF, ejectIndex);
+                insertSolution(candidate, candidateF, elites.size());  // Insert at end after removal
                 return true;
             }
 

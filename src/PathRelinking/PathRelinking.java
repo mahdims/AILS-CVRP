@@ -34,9 +34,10 @@ public class PathRelinking {
     private RoutePairing routePairing;
     private LocalSearch localSearch;
     private Random random;
+    private int lastMoveCount = 0; // Track moves from last PR execution
 
     public PathRelinking(Instance instance, Config config,
-                        IntraLocalSearch intraLS) {
+            IntraLocalSearch intraLS) {
         this.instance = instance;
         this.config = config;
         this.routePairing = new RoutePairing(instance);
@@ -52,14 +53,14 @@ public class PathRelinking {
      * Result: The best solution s^b found in the PR search
      *
      * @param sCurrent Current solution (new best from AILS)
-     * @param sElite Elite solution from elite set
+     * @param sElite   Elite solution from elite set
      * @return Best solution found during path relinking, or null if error
      */
     public Solution pathRelink(Solution sCurrent, Solution sElite) {
         // Verify same number of routes (required for PR)
         if (sCurrent.getNumRoutes() != sElite.getNumRoutes()) {
             System.err.println("[PR] Cannot relink: Different #routes (" +
-                             sCurrent.getNumRoutes() + " vs " + sElite.getNumRoutes() + ")");
+                    sCurrent.getNumRoutes() + " vs " + sElite.getNumRoutes() + ")");
             return null;
         }
 
@@ -153,21 +154,31 @@ public class PathRelinking {
         }
 
         // Line 16: Apply the local search to s^b
+        long lsStart = System.currentTimeMillis();
         localSearch.localSearch(sb, true);
 
+        long lsTime = System.currentTimeMillis() - lsStart;
+        if (lsTime > 10000) { // Only log if LS took > 1 second
+            System.out.printf("[PR-LS] Local search took %.1fs (f:%.2f->%.2f moves:%d)\n",
+                    lsTime / 1000.0, initialF, sb.f, moveCount);
+        }
         // Line 17: Update E considering solution s^b (done by caller)
+
+        // Store move count for statistics
+        this.lastMoveCount = moveCount;
 
         // Return best solution found
         return sb;
     }
 
     /**
-     * Calculate NF set: all vertices in si that are not in their target routes in sg
+     * Calculate NF set: all vertices in si that are not in their target routes in
+     * sg
      *
      * NF = union over all routes k of (vertices in R^si_k but not in R^sg_{phi(k)})
      *
-     * @param si Initial solution
-     * @param sg Guide solution
+     * @param si  Initial solution
+     * @param sg  Guide solution
      * @param phi Route pairing function
      * @return Set of vertex IDs that need to be moved
      */
@@ -196,18 +207,17 @@ public class PathRelinking {
     /**
      * Calculate priorities for all vertices in NF using given criterion
      *
-     * @param NF Set of vertices to prioritize
-     * @param si Current solution
-     * @param phi Route pairing
+     * @param NF        Set of vertices to prioritize
+     * @param si        Current solution
+     * @param phi       Route pairing
      * @param criterion Priority criterion to use
      * @return Map of vertex ID to priority score
      */
     private Map<Integer, Double> calculatePriorities(
-        Set<Integer> NF,
-        Solution si,
-        int[] phi,
-        PriorityCriteria criterion
-    ) {
+            Set<Integer> NF,
+            Solution si,
+            int[] phi,
+            PriorityCriteria criterion) {
         Map<Integer, Double> priorities = new HashMap<>();
 
         for (int vertexId : NF) {
@@ -227,12 +237,11 @@ public class PathRelinking {
 
             // Calculate priority using criterion
             double priority = criterion.calculatePriority(
-                v,
-                originRoute,
-                destRoute,
-                instance.getCapacity(),
-                movementCost
-            );
+                    v,
+                    originRoute,
+                    destRoute,
+                    instance.getCapacity(),
+                    movementCost);
 
             priorities.put(vertexId, priority);
         }
@@ -245,17 +254,16 @@ public class PathRelinking {
      * Ties broken by minimum cost (Equation 3)
      *
      * @param priorities Map of vertex priorities
-     * @param si Current solution
-     * @param sg Guide solution
-     * @param phi Route pairing
+     * @param si         Current solution
+     * @param sg         Guide solution
+     * @param phi        Route pairing
      * @return Vertex ID with highest priority, or -1 if none found
      */
     private int selectVertexWithHighestPriority(
-        Map<Integer, Double> priorities,
-        Solution si,
-        Solution sg,
-        int[] phi
-    ) {
+            Map<Integer, Double> priorities,
+            Solution si,
+            Solution sg,
+            int[] phi) {
         int bestVertex = -1;
         double highestPriority = Double.NEGATIVE_INFINITY;
         double lowestCost = Double.MAX_VALUE;
@@ -276,8 +284,7 @@ public class PathRelinking {
 
             // Select by priority first, break ties by cost
             boolean betterPriority = priority > highestPriority;
-            boolean samePriorityLowerCost =
-                (Math.abs(priority - highestPriority) < 0.0001) && (cost < lowestCost);
+            boolean samePriorityLowerCost = (Math.abs(priority - highestPriority) < 0.0001) && (cost < lowestCost);
 
             if (betterPriority || samePriorityLowerCost) {
                 bestVertex = vertexId;
@@ -293,17 +300,17 @@ public class PathRelinking {
      * Move vertex to target route at minimum cost position
      * Implements Equation (3) from paper:
      *
-     * i_hat = argmin_{i in [1..m]} min_{l in [0..n_i]} d(v'_l, v) + d(v, v'_{l+1}) - d(v'_l, v'_{l+1})
+     * i_hat = argmin_{i in [1..m]} min_{l in [0..n_i]} d(v'_l, v) + d(v, v'_{l+1})
+     * - d(v'_l, v'_{l+1})
      *
-     * @param sol Solution to modify
-     * @param vertex Vertex to move
+     * @param sol         Solution to modify
+     * @param vertex      Vertex to move
      * @param targetRoute Destination route
      */
     private void moveVertexToMinimumCostPosition(
-        Solution sol,
-        Node vertex,
-        Route targetRoute
-    ) {
+            Solution sol,
+            Node vertex,
+            Route targetRoute) {
         // Remove from current route
         Route currentRoute = vertex.route;
         if (currentRoute != null) {
@@ -321,7 +328,7 @@ public class PathRelinking {
      * Calculate cost of moving vertex to target route (minimum cost)
      * Equation (3): argmin over all positions
      *
-     * @param vertex Vertex to move
+     * @param vertex      Vertex to move
      * @param targetRoute Target route
      * @return Minimum insertion cost
      */
@@ -341,12 +348,19 @@ public class PathRelinking {
         Node current = route.first.next;
 
         while (current != route.first) {
-            if (current.name > 0) {  // Exclude depot
+            if (current.name > 0) { // Exclude depot
                 vertices.add(current.name);
             }
             current = current.next;
         }
 
         return vertices;
+    }
+
+    /**
+     * Get the number of moves performed in the last path relinking execution
+     */
+    public int getLastMoveCount() {
+        return lastMoveCount;
     }
 }

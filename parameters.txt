@@ -53,7 +53,7 @@ sisr.blinkRate=0.01
 
 # Rate at which fleet minimization is applied probabilistically (0.005 = 0.5% probability)
 # Applied only in first 25% of run
-fleetMinimizationRate=0.001
+fleetMinimizationRate=0.00
 
 # Maximum iterations for fleet minimization phase
 fleetMinimizationMaxIter=200

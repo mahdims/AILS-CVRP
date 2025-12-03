@@ -35,6 +35,11 @@ public class PathRelinkingThread implements Runnable {
     private int prIterations;
     private AILSII ails; // Reference to AILSII for communication
 
+    // Stagnation detection
+    private int lastStagnationCheckInsertions = 0;
+    private static final int STAGNATION_CHECK_INTERVAL = 10000;
+    private static final int MIN_ITERATIONS_BEFORE_STAGNATION_CHECK = 100000;
+
     public PathRelinkingThread(
             EliteSet eliteSet,
             Instance instance,
@@ -127,6 +132,9 @@ public class PathRelinkingThread implements Runnable {
 
                     stats.recordIteration(inserted, result.f);
 
+					// Record number of moves performed in this PR iteration
+					stats.recordMoves(pathRelinking.getLastMoveCount());
+
                     // Complete the log line
                     // System.out.printf("-> Result: f=%.2f %s%s\n",
                     // result.f,
@@ -137,6 +145,26 @@ public class PathRelinkingThread implements Runnable {
                 }
 
                 prIterations++;
+
+                // Stagnation detection (every 10,000 iterations)
+                if (prIterations % STAGNATION_CHECK_INTERVAL == 0 &&
+                    prIterations >= MIN_ITERATIONS_BEFORE_STAGNATION_CHECK) {
+
+                    int currentInsertions = stats.getSuccessfulInsertions();
+
+                    if (currentInsertions == lastStagnationCheckInsertions) {
+                        // No new insertions in last 10k iterations - terminate
+                        double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
+                        System.out.println("[PR Thread] Stagnation detected: no insertions in last " +
+                                STAGNATION_CHECK_INTERVAL + " iterations");
+                        System.out.println("[PR Thread] Terminating PR after " + prIterations +
+                                " iterations (" + String.format("%.1f", elapsed) + "s)");
+                        break;
+                    }
+
+                    // Update for next check
+                    lastStagnationCheckInsertions = currentInsertions;
+                }
 
                 // Periodic statistics (every 100 iterations)
                 if (prIterations % 100 == 0) {

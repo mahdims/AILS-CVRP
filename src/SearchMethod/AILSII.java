@@ -38,6 +38,7 @@ public class AILSII {
 	int iterator, iteratorMF;
 	long first, ini;
 	double timeAF, totalTime, time;
+	long lastHeartbeatTime; // Track time of last heartbeat log (for 10-min intervals)
 
 	Random rand = new Random();
 
@@ -160,6 +161,7 @@ public class AILSII {
 	public void search() {
 		iterator = 0;
 		first = System.currentTimeMillis();
+		lastHeartbeatTime = first; // Initialize heartbeat timer
 		referenceSolution.numRoutes = instance.getMinNumberRoutes();
 		constructSolution.construct(referenceSolution);
 
@@ -209,6 +211,22 @@ public class AILSII {
 
 			if (acceptanceCriterion.acceptSolution(solution))
 				referenceSolution.clone(solution);
+
+			// Heartbeat logging: show progress every 10 minutes when no improvements
+			long currentTime = System.currentTimeMillis();
+			long timeSinceLastHeartbeat = currentTime - lastHeartbeatTime;
+			if (timeSinceLastHeartbeat >= 600000) { // 10 minutes = 600,000 ms
+				double elapsed = (currentTime - first) / 1000.0;
+				double timeSinceImprovement = elapsed - timeAF;
+				System.out.println("[AILS-Heartbeat] time:" + deci.format(elapsed) + "s"
+						+ " iter:" + iterator
+						+ " | bestF:" + bestF
+						+ " gap:" + deci.format(getGap()) + "%"
+						+ " noImpr:" + deci.format(timeSinceImprovement) + "s"
+						+ " eta:" + deci.format(acceptanceCriterion.getEta())
+						+ " omega:" + deci.format(selectedPerturbation.omega));
+				lastHeartbeatTime = currentTime;
+			}
 		}
 
 		totalTime = (double) (System.currentTimeMillis() - first) / 1000;
@@ -244,6 +262,9 @@ public class AILSII {
 			bestSolution.clone(solution);
 			iteratorMF = iterator;
 			timeAF = (double) (System.currentTimeMillis() - first) / 1000;
+
+			// Reset heartbeat timer on improvement
+			lastHeartbeatTime = System.currentTimeMillis();
 
 			// Try to insert into elite set (pass bestSolution which is already cloned)
 			boolean inserted = eliteSet.tryInsert(bestSolution, bestSolution.f);
@@ -415,6 +436,9 @@ public class AILSII {
 			iteratorMF = iterator;
 			timeAF = (double) (System.currentTimeMillis() - first) / 1000;
 
+			// Reset heartbeat timer on improvement from PR
+			lastHeartbeatTime = System.currentTimeMillis();
+
 			// Reset omega for all perturbations to ideal distance
 			for (OmegaAdjustment omegaAdj : omegaSetup.values()) {
 				omegaAdj.setActualOmega(idealDist.idealDist);
@@ -453,10 +477,7 @@ public class AILSII {
 		if (fleetMinResult.numRoutes < referenceSolution.numRoutes) {
 			localSearch.localSearch(fleetMinResult, true);
 		} else {
-			double currentTime = (double) (System.currentTimeMillis() - first) / 1000;
-			System.out.println("[FleetMin] time:" + deci.format(currentTime) + "s"
-					+ " iter:" + iterator
-					+ " | status:no_improvement");
+			// No improvement - silently skip (no log spam)
 			return;
 		}
 
