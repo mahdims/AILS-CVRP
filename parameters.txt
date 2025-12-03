@@ -19,8 +19,8 @@ gamma=30
 varphi=40
 
 # Perturbation operators (destroy methods) - comma-separated
-# Available: Sequential, Concentric, SISR
-perturbation=Sequential,Concentric, SISR
+# Available: Sequential, Concentric, SISR, RouteRemoval
+perturbation=Sequential,Concentric,SISR,RouteRemoval
 # perturbation=SISR
 
 # Insertion heuristics (recreate methods) - comma-separated

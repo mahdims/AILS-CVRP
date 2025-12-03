@@ -177,6 +177,9 @@ public class AILSII {
 
 		// Start Path Relinking thread if enabled
 		if (config.getPrConfig().isEnabled() && prThread != null) {
+			// Pass global time limit to PR thread so it can stop independently
+			prThread.setGlobalTimeLimit(first, executionMaximumLimit);
+
 			prThreadHandle = new Thread(prThread, "PathRelinkingThread");
 			prThreadHandle.setDaemon(true);
 			prThreadHandle.start();
@@ -248,11 +251,12 @@ public class AILSII {
 	}
 
 	public void printPerturbationUsageSummary() {
-		System.out.println("\nPerturbation usage: " +
-				"Sequential=" + perturbationUsageCount.getOrDefault("Sequential", 0) +
-				" Concentric=" + perturbationUsageCount.getOrDefault("Concentric", 0) +
-				" SISR=" + perturbationUsageCount.getOrDefault("SISR", 0) +
-				" (total=" + iterator + " iterations)");
+		StringBuilder summary = new StringBuilder("\nPerturbation usage: ");
+		for (String name : perturbationUsageCount.keySet()) {
+			summary.append(name).append("=").append(perturbationUsageCount.get(name)).append(" ");
+		}
+		summary.append("(total=").append(iterator).append(" iterations)");
+		System.out.println(summary.toString());
 	}
 
 	public void evaluateSolution() {

@@ -35,6 +35,10 @@ public class PathRelinkingThread implements Runnable {
     private int prIterations;
     private AILSII ails; // Reference to AILSII for communication
 
+    // Global time limit tracking
+    private long globalStartTime;
+    private double globalTimeLimit;
+
     // Stagnation detection
     private int lastStagnationCheckInsertions = 0;
     private static final int STAGNATION_CHECK_INTERVAL = 10000;
@@ -56,6 +60,10 @@ public class PathRelinkingThread implements Runnable {
         this.stats = new PathRelinkingStats();
         this.ails = ails;
 
+        // Initialize to 0 - will be set when thread starts
+        this.globalStartTime = 0;
+        this.globalTimeLimit = 0;
+
         // Create PR components
         this.pathRelinking = new PathRelinking(instance, config, intraLS);
     }
@@ -72,20 +80,21 @@ public class PathRelinkingThread implements Runnable {
             System.out.println("[PR Thread] Waiting for elite set to have >= " +
                     prConfig.getMinEliteSizeForPR() + " solutions...");
 
-            while (!shouldStop && eliteSet.size() < prConfig.getMinEliteSizeForPR()) {
+            while (!shouldStop && !isTimeLimitExceeded() && eliteSet.size() < prConfig.getMinEliteSizeForPR()) {
                 Thread.sleep(100);
             }
 
-            if (shouldStop) {
-                System.out.println("[PR Thread] Stopped before elite set ready");
+            if (shouldStop || isTimeLimitExceeded()) {
+                System.out.println("[PR Thread] Stopped before elite set ready" +
+                        (isTimeLimitExceeded() ? " (time limit reached)" : ""));
                 return;
             }
 
             System.out.println("[PR Thread] Elite set ready (" + eliteSet.size() +
                     " solutions), beginning PR iterations");
 
-            // Main PR loop - runs as long as AILS runs
-            while (!shouldStop) {
+            // Main PR loop - runs until stopped or time limit reached
+            while (!shouldStop && !isTimeLimitExceeded()) {
 
                 // Check if elite set has enough solutions
                 if (eliteSet.size() < 2) {
@@ -184,9 +193,11 @@ public class PathRelinkingThread implements Runnable {
         }
 
         double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
+        String reason = isTimeLimitExceeded() ? " (time limit reached)" :
+                        shouldStop ? " (stopped by AILS)" : " (stagnation)";
         System.out.println("[PR Thread] Terminated after " +
                 prIterations + " iterations (" +
-                String.format("%.1f", elapsed) + "s)");
+                String.format("%.1f", elapsed) + "s)" + reason);
 
         stats.printFinalStats();
     }
@@ -400,6 +411,31 @@ public class PathRelinkingThread implements Runnable {
     private boolean timeLimitExceeded(long startTime) {
         double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
         return elapsed >= prConfig.getPrTimeLimit();
+    }
+
+    /**
+     * Set the global time limit for PR thread
+     * Should be called before starting the thread
+     *
+     * @param startTime Global start time in milliseconds
+     * @param timeLimit Time limit in seconds
+     */
+    public void setGlobalTimeLimit(long startTime, double timeLimit) {
+        this.globalStartTime = startTime;
+        this.globalTimeLimit = timeLimit;
+    }
+
+    /**
+     * Check if global time limit has been exceeded
+     *
+     * @return true if time limit exceeded
+     */
+    private boolean isTimeLimitExceeded() {
+        if (globalTimeLimit <= 0 || globalStartTime <= 0) {
+            return false; // No time limit set
+        }
+        double elapsed = (System.currentTimeMillis() - globalStartTime) / 1000.0;
+        return elapsed >= globalTimeLimit;
     }
 
     /**
