@@ -13,10 +13,11 @@ import Solution.Solution;
 public class Sequential extends Perturbation
 {
 	
-	public Sequential(Instance instance, Config config, 
-	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch)
+	public Sequential(Instance instance, Config config,
+	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch,
+	SearchMethod.AILSII ailsInstance)
 	{
-		super(instance, config,omegaSetup,intraLocalSearch);
+		super(instance, config, omegaSetup, intraLocalSearch, ailsInstance);
 		this.perturbationType=PerturbationType.Sequential;
 	}
 

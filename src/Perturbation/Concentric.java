@@ -13,9 +13,10 @@ import Solution.Solution;
 public class Concentric extends Perturbation
 {
 	public Concentric(Instance instance, Config config,
-	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch)
+	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch,
+	SearchMethod.AILSII ailsInstance)
 	{
-		super(instance, config, omegaSetup,intraLocalSearch);
+		super(instance, config, omegaSetup, intraLocalSearch, ailsInstance);
 		this.perturbationType=PerturbationType.Concentric;
 	}
 

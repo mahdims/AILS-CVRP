@@ -5,7 +5,9 @@ public enum PerturbationType
 	Sequential(0),
 	Concentric(1),
 	SISR(2),
-	RouteRemoval(3);
+	RouteRemoval(3),
+	CriticalRemoval(4),
+	RandomRemoval(5);
 
 	final int type;
 

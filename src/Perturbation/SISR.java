@@ -85,8 +85,9 @@ public class SISR extends Perturbation {
 
 	public SISR(Instance instance, Config config,
 	            HashMap<String, OmegaAdjustment> omegaSetup,
-	            IntraLocalSearch intraLocalSearch) {
-		super(instance, config, omegaSetup, intraLocalSearch);
+	            IntraLocalSearch intraLocalSearch,
+	            SearchMethod.AILSII ailsInstance) {
+		super(instance, config, omegaSetup, intraLocalSearch, ailsInstance);
 
 		this.perturbationType = PerturbationType.SISR;
 		this.sisrConfig = config.getSisrConfig();
@@ -208,9 +209,7 @@ public class SISR extends Perturbation {
 		params.ell_s_max = Math.min(sisrConfig.maxStringLength, avgCardinality);
 
 		// ===== EQUATION 6: k_s_max = floor(4*c_bar/(1+ell_s_max)) - 1 =====
-		// Calculate c_bar (avgRemoved) from percentage of total nodes
-		double avgRemoved = size * sisrConfig.avgRemovedPercent;
-		double k_s_max = Math.floor(4.0 * avgRemoved / (1.0 + params.ell_s_max)) - 1;
+		double k_s_max = Math.floor(4.0 * sisrConfig.avgRemoved / (1.0 + params.ell_s_max)) - 1;
 
 		// ===== EQUATION 7: k_s = floor(U(1, k_s_max+1)) =====
 		if (k_s_max < 1) {

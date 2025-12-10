@@ -18,7 +18,9 @@ import Improvement.FeasibilityPhase;
 import Perturbation.InsertionHeuristic;
 import Perturbation.Perturbation;
 import Perturbation.SISR;
+import Perturbation.CriticalRemoval;
 import Solution.Solution;
+import Solution.Node;
 import PathRelinking.PathRelinkingThread;
 
 public class AILSII {
@@ -45,6 +47,11 @@ public class AILSII {
 	HashMap<String, OmegaAdjustment> omegaSetup = new HashMap<String, OmegaAdjustment>();
 	HashMap<String, Integer> perturbationUsageCount = new HashMap<String, Integer>();
 
+	// Operator success tracking for effectiveness analysis
+	HashMap<String, Integer> operatorSuccessCount = new HashMap<String, Integer>();
+	String lastOperatorUsed = null;
+	double lastSolutionF = Double.MAX_VALUE;
+
 	double distanceLS;
 
 	Perturbation[] pertubOperators;
@@ -58,6 +65,13 @@ public class AILSII {
 
 	// Elite Set for maintaining diverse high-quality solutions
 	EliteSet eliteSet;
+
+	// History tracking for CriticalRemoval operator
+	// Tracks how many times each customer has been removed during search
+	private int[] customerRemovalCounts;
+
+	// Adaptive Operator Selection
+	private AdaptiveOperatorSelection aos;
 
 	// Path Relinking thread (runs in parallel)
 	PathRelinkingThread prThread;
@@ -115,12 +129,13 @@ public class AILSII {
 					idealDist);
 			omegaSetup.put(config.getPerturbation()[i] + "", newOmegaAdjustment);
 			perturbationUsageCount.put(config.getPerturbation()[i] + "", 0);
+			operatorSuccessCount.put(config.getPerturbation()[i] + "", 0);
 		}
 
 		this.acceptanceCriterion = new AcceptanceCriterion(instance, config, executionMaximumLimit);
 
 		// Create dedicated SISR operator for fleet minimization
-		this.sisrForFleetMin = new SISR(instance, config, omegaSetup, intraLocalSearch);
+		this.sisrForFleetMin = new SISR(instance, config, omegaSetup, intraLocalSearch, this);
 
 		// Initialize Elite Set from config
 		this.eliteSet = new EliteSet(
@@ -129,6 +144,10 @@ public class AILSII {
 				config.getEliteSetMinDiversity(),
 				instance,
 				config);
+
+		// Initialize history tracking for CriticalRemoval
+		// Array size = number of customers + 1 (index 0 is depot, not tracked)
+		this.customerRemovalCounts = new int[instance.getSize() + 1];
 
 		// Initialize Path Relinking thread
 		if (config.getPrConfig().isEnabled()) {
@@ -145,9 +164,21 @@ public class AILSII {
 
 		try {
 			for (int i = 0; i < pertubOperators.length; i++) {
-				this.pertubOperators[i] = (Perturbation) Class.forName("Perturbation." + config.getPerturbation()[i])
-						.getConstructor(Instance.class, Config.class, HashMap.class, IntraLocalSearch.class)
-						.newInstance(instance, config, omegaSetup, intraLocalSearch);
+				// Convert PerturbationType to String
+				String operatorName = config.getPerturbation()[i] + "";
+
+				// Special handling for new operators that need extra parameters
+				if (operatorName.equals("CriticalRemoval")) {
+					// CriticalRemoval needs ailsInstance for removal tracking
+					this.pertubOperators[i] = new CriticalRemoval(
+							instance, config, omegaSetup, intraLocalSearch, this);
+				} else {
+					// Standard operators via reflection (now with ailsInstance parameter)
+					this.pertubOperators[i] = (Perturbation) Class.forName("Perturbation." + operatorName)
+							.getConstructor(Instance.class, Config.class, HashMap.class,
+									IntraLocalSearch.class, SearchMethod.AILSII.class)
+							.newInstance(instance, config, omegaSetup, intraLocalSearch, this);
+				}
 			}
 
 		} catch (InstantiationException | IllegalAccessException | IllegalArgumentException
@@ -156,6 +187,52 @@ public class AILSII {
 			e.printStackTrace();
 		}
 
+		// Initialize Adaptive Operator Selection
+		if (config.isAosEnabled()) {
+			String[] operatorNames = new String[config.getPerturbation().length];
+			for (int i = 0; i < config.getPerturbation().length; i++) {
+				operatorNames[i] = config.getPerturbation()[i].toString();
+			}
+			this.aos = new AdaptiveOperatorSelection(operatorNames, rand, config);
+		}
+
+	}
+
+	/**
+	 * Record customer removals for CriticalRemoval tracking.
+	 * Called by perturbation operators (except CriticalRemoval itself) to track
+	 * which customers are frequently being removed during the search.
+	 *
+	 * Applies periodic decay (95% retention) every 1000 iterations to gradually
+	 * forget old removal patterns and adapt to current search behavior.
+	 *
+	 * @param removedCustomers Array of customers that were removed
+	 * @param count            Number of customers in the array to process
+	 */
+	public void recordRemovals(Node[] removedCustomers, int count) {
+		// Increment removal count for each removed customer
+		for (int i = 0; i < count; i++) {
+			customerRemovalCounts[removedCustomers[i].name]++;
+		}
+
+		// Periodic decay every 1000 iterations to prevent unbounded growth
+		// and to give more weight to recent removal patterns
+		if (iterator % 1000 == 0 && iterator > 0) {
+			for (int j = 1; j < customerRemovalCounts.length; j++) {
+				// Decay by 5% (retain 95%), rounding to nearest integer
+				customerRemovalCounts[j] = (int) (customerRemovalCounts[j] * 0.95 + 0.5);
+			}
+		}
+	}
+
+	/**
+	 * Get customer removal counts array.
+	 * Used by CriticalRemoval operator to identify frequently removed customers.
+	 *
+	 * @return Array where index i contains removal count for customer i
+	 */
+	public int[] getCustomerRemovalCounts() {
+		return customerRemovalCounts;
 	}
 
 	public void search() {
@@ -199,9 +276,29 @@ public class AILSII {
 
 			solution.clone(referenceSolution);
 
-			selectedPerturbation = pertubOperators[rand.nextInt(pertubOperators.length)];
-			String perturbName = selectedPerturbation.getPerturbationType() + "";
+			// Select operator using AOS (if enabled) or uniform random
+			String perturbName;
+			if (aos != null) {
+				// AOS: Select operator based on learned probabilities
+				perturbName = aos.selectOperator();
+				// Find the operator object by name
+				for (Perturbation op : pertubOperators) {
+					if (op.getPerturbationType().toString().equals(perturbName)) {
+						selectedPerturbation = op;
+						break;
+					}
+				}
+			} else {
+				// Fallback: Uniform random selection (original behavior)
+				selectedPerturbation = pertubOperators[rand.nextInt(pertubOperators.length)];
+				perturbName = selectedPerturbation.getPerturbationType() + "";
+			}
+
 			perturbationUsageCount.put(perturbName, perturbationUsageCount.get(perturbName) + 1);
+
+			// Track last operator for success rate analysis
+			lastOperatorUsed = perturbName;
+
 			selectedPerturbation.applyPerturbation(solution);
 			feasibilityOperator.makeFeasible(solution);
 			localSearch.localSearch(solution, true);
@@ -212,8 +309,50 @@ public class AILSII {
 
 			selectedPerturbation.getChosenOmega().setDistance(distanceLS);// update
 
-			if (acceptanceCriterion.acceptSolution(solution))
+			// Determine acceptance and track outcome for AOS
+			boolean accepted = acceptanceCriterion.acceptSolution(solution);
+			if (accepted) {
 				referenceSolution.clone(solution);
+			}
+
+			// Provide feedback to AOS based on outcome
+			if (aos != null) {
+				// Check if PR injected a solution - if so, skip AOS scoring
+				// because the outcome is not due to the current operator's performance
+				if (prFoundBetter) {
+					// Reset flag for next iteration
+					prFoundBetter = false;
+					aos.resetScores();
+					// Skip AOS outcome recording - PR injection is external event
+				} else {
+					int outcomeType;
+					double bestFBeforeIteration = lastSolutionF; // F before this operator was applied
+
+					if (solution.f < bestF) {
+						// New global best found
+						outcomeType = 1;
+					} else if (solution.f < bestFBeforeIteration) {
+						// Improved solution (better than previous reference)
+						outcomeType = 2;
+					} else if (accepted) {
+						// Accepted solution (by SA criterion)
+						outcomeType = 3;
+					} else {
+						// Rejected solution
+						outcomeType = 0;
+					}
+
+					aos.recordOutcome(perturbName, outcomeType);
+				}
+
+				// Log operator probabilities at segment boundaries
+				if (iterator % 2000 == 0) {
+					aos.printStats(iterator);
+				}
+			}
+
+			// Update lastSolutionF for next iteration
+			lastSolutionF = referenceSolution.f;
 
 			// Heartbeat logging: show progress every 10 minutes when no improvements
 			long currentTime = System.currentTimeMillis();
@@ -257,6 +396,34 @@ public class AILSII {
 		}
 		summary.append("(total=").append(iterator).append(" iterations)");
 		System.out.println(summary.toString());
+
+		// Print detailed success rate analysis
+		System.out.println("\n==================================================");
+		System.out.println("    Operator Effectiveness Analysis              ");
+		System.out.println("==================================================");
+		System.out.printf("%-25s %8s %10s %10s%n", "Operator", "Uses", "Improv.", "Rate");
+		System.out.println("--------------------------------------------------");
+
+		int totalUses = 0;
+		int totalImprovements = 0;
+
+		for (String name : perturbationUsageCount.keySet()) {
+			int uses = perturbationUsageCount.get(name);
+			int improvements = operatorSuccessCount.getOrDefault(name, 0);
+			double rate = uses > 0 ? 100.0 * improvements / uses : 0.0;
+
+			totalUses += uses;
+			totalImprovements += improvements;
+
+			System.out.printf("%-25s %8d %10d %9.2f%%%n",
+					name, uses, improvements, rate);
+		}
+
+		System.out.println("--------------------------------------------------");
+		double overallRate = totalUses > 0 ? 100.0 * totalImprovements / totalUses : 0.0;
+		System.out.printf("%-25s %8d %10d %9.2f%%%n",
+				"TOTAL", totalUses, totalImprovements, overallRate);
+		System.out.println("==================================================\n");
 	}
 
 	public void evaluateSolution() {
@@ -266,6 +433,12 @@ public class AILSII {
 			bestSolution.clone(solution);
 			iteratorMF = iterator;
 			timeAF = (double) (System.currentTimeMillis() - first) / 1000;
+
+			// Track which operator led to this improvement
+			if (lastOperatorUsed != null) {
+				operatorSuccessCount.put(lastOperatorUsed,
+						operatorSuccessCount.get(lastOperatorUsed) + 1);
+			}
 
 			// Reset heartbeat timer on improvement
 			lastHeartbeatTime = System.currentTimeMillis();
@@ -457,7 +630,7 @@ public class AILSII {
 						+ " K: " + prSolution.numRoutes
 						+ " iteration: " + iterator
 						+ " time: " + timeAF
-						+ " [Omega RESET]");
+						+ " [Omega + AOS RESET]");
 			}
 		}
 	}

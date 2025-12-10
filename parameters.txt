@@ -19,9 +19,10 @@ gamma=30
 varphi=40
 
 # Perturbation operators (destroy methods) - comma-separated
-# Available: Sequential, Concentric, SISR, RouteRemoval
-perturbation=Sequential,Concentric,SISR,RouteRemoval
-# perturbation=SISR
+# Available: Sequential, Concentric, SISR, RouteRemoval, CriticalRemoval, RandomRemoval
+# perturbation=Sequential,Concentric,SISR,RouteRemoval,CriticalRemoval,RandomRemoval
+perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval,SISR
+
 
 # Insertion heuristics (recreate methods) - comma-separated
 # Available: Distance, Cost
@@ -43,8 +44,8 @@ knnLimit=100
 
 sisr.maxStringLength=10.0
 sisr.splitRate=0.5
-sisr.splitDepth=0.3
-sisr.avgRemovedPercent=0.21
+sisr.splitDepth=0.01
+sisr.avgRemoved=10
 sisr.blinkRate=0.01
 
 # ============================================================
@@ -72,3 +73,34 @@ eliteSetBeta=0.2
 # Minimum diversity threshold to accept a solution (0.0-1.0)
 # Solutions with diversity below this threshold are rejected
 eliteSetMinDiversity=0.15
+
+# ============================================================
+# Adaptive Operator Selection (AOS) Parameters
+# ============================================================
+
+# Enable/disable adaptive operator selection
+# If disabled, operators are selected uniformly at random
+aos.enabled=true
+
+# Segment length (iterations before probability update)
+# Based on Ropke & Pisinger 2006 but adapted for faster VRP dynamics
+# Original: 100 iterations, Recommended for AILS: 20-30 iterations
+# Shorter = faster adaptation, Longer = more stability
+aos.segmentLength=100
+
+# Reaction factor (0.0-1.0) - weight given to new evidence
+# Higher values = faster learning but more volatile
+# Ropke & Pisinger used 0.1, we use 0.2 for faster adaptation
+aos.reactionFactor=0.1
+
+# Minimum probability floor (0.0-1.0)
+# Prevents operator extinction (ensures all operators get some chance)
+# Recommended: 0.05 (5% minimum probability per operator)
+aos.minProbability=0.05
+
+# Reward scores (based on Ropke & Pisinger 2006)
+# Score awarded when operator leads to outcome
+aos.scoreGlobalBest=30.0
+aos.scoreImproved=15.0
+aos.scoreAccepted=2.0
+aos.scoreRejected=0.0

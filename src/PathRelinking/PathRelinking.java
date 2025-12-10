@@ -36,6 +36,10 @@ public class PathRelinking {
     private Random random;
     private int lastMoveCount = 0; // Track moves from last PR execution
 
+    // Time limit tracking for early termination
+    private long globalStartTime = 0;
+    private double globalTimeLimit = 0;
+
     public PathRelinking(Instance instance, Config config,
             IntraLocalSearch intraLS) {
         this.instance = instance;
@@ -43,6 +47,31 @@ public class PathRelinking {
         this.routePairing = new RoutePairing(instance);
         this.localSearch = new LocalSearch(instance, config, intraLS);
         this.random = new Random();
+    }
+
+    /**
+     * Set global time limit for early termination
+     * Should be called by PR thread before each pathRelink() call
+     *
+     * @param startTime Global start time in milliseconds
+     * @param timeLimit Time limit in seconds
+     */
+    public void setGlobalTimeLimit(long startTime, double timeLimit) {
+        this.globalStartTime = startTime;
+        this.globalTimeLimit = timeLimit;
+    }
+
+    /**
+     * Check if global time limit has been exceeded
+     *
+     * @return true if time limit exceeded
+     */
+    private boolean isTimeLimitExceeded() {
+        if (globalTimeLimit <= 0 || globalStartTime <= 0) {
+            return false; // No time limit set
+        }
+        double elapsed = (System.currentTimeMillis() - globalStartTime) / 1000.0;
+        return elapsed >= globalTimeLimit;
     }
 
     /**
@@ -106,6 +135,13 @@ public class PathRelinking {
 
         // Line 7: while |NF| > 0 do
         while (!NF.isEmpty()) {
+            // Check time limit every 100 moves to avoid excessive checking overhead
+            if (moveCount % 100 == 0 && isTimeLimitExceeded()) {
+                System.out.println("[PR] Time limit reached during path relinking (moved " +
+                    moveCount + "/" + (moveCount + NF.size()) + " vertices)");
+                break; // Early termination - return best solution found so far
+            }
+
             // Line 8: Calculate the priority p_v according to the criterion C
             // for all v in NF
             Map<Integer, Double> priorities = calculatePriorities(NF, si, phi, C);
@@ -154,13 +190,18 @@ public class PathRelinking {
         }
 
         // Line 16: Apply the local search to s^b
-        long lsStart = System.currentTimeMillis();
-        localSearch.localSearch(sb, true);
+        // Skip local search if time limit already exceeded
+        if (!isTimeLimitExceeded()) {
+            long lsStart = System.currentTimeMillis();
+            localSearch.localSearch(sb, true);
 
-        long lsTime = System.currentTimeMillis() - lsStart;
-        if (lsTime > 10000) { // Only log if LS took > 1 second
-            System.out.printf("[PR-LS] Local search took %.1fs (f:%.2f->%.2f moves:%d)\n",
-                    lsTime / 1000.0, initialF, sb.f, moveCount);
+            long lsTime = System.currentTimeMillis() - lsStart;
+            if (lsTime > 10000) { // Only log if LS took > 1 second
+                System.out.printf("[PR-LS] Local search took %.1fs (f:%.2f->%.2f moves:%d)\n",
+                        lsTime / 1000.0, initialF, sb.f, moveCount);
+            }
+        } else {
+            System.out.println("[PR] Skipping local search (time limit exceeded)");
         }
         // Line 17: Update E considering solution s^b (done by caller)
 

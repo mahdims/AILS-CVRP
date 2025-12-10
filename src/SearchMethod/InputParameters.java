@@ -376,8 +376,8 @@ public class InputParameters
 					config.getSisrConfig().setSplitDepth(Double.parseDouble(value));
 					parameterSources.put(key, source);
 					break;
-				case "sisr.avgRemovedPercent":
-					config.getSisrConfig().setAvgRemovedPercent(Double.parseDouble(value));
+				case "sisr.avgRemoved":
+					config.getSisrConfig().setAvgRemoved(Double.parseDouble(value));
 					parameterSources.put(key, source);
 					break;
 				case "sisr.blinkRate":
@@ -406,6 +406,40 @@ public class InputParameters
 					break;
 				case "eliteSetMinDiversity":
 					config.setEliteSetMinDiversity(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+
+				// Adaptive Operator Selection parameters
+				case "aos.enabled":
+					config.setAosEnabled(Boolean.parseBoolean(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.segmentLength":
+					config.setAosSegmentLength(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.reactionFactor":
+					config.setAosReactionFactor(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.minProbability":
+					config.setAosMinProbability(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.scoreGlobalBest":
+					config.setAosScoreGlobalBest(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.scoreImproved":
+					config.setAosScoreImproved(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.scoreAccepted":
+					config.setAosScoreAccepted(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "aos.scoreRejected":
+					config.setAosScoreRejected(Double.parseDouble(value));
 					parameterSources.put(key, source);
 					break;
 

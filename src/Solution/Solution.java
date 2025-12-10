@@ -560,8 +560,8 @@ public class Solution
 	{
 		sisrAbsent.clear();
 
-		// Calculate number of customers to remove (based on avgRemovedPercent)
-		int numToRemove = Math.max(1, (int)(size * sisrConfig.getAvgRemovedPercent()));
+		// Calculate number of customers to remove (based on avgRemoved)
+		int numToRemove = Math.max(1, (int)sisrConfig.getAvgRemoved());
 
 		// Select random customers to remove
 		List<Integer> candidates = new ArrayList<>();

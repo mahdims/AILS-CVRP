@@ -141,8 +141,8 @@ public class PathRelinkingThread implements Runnable {
 
                     stats.recordIteration(inserted, result.f);
 
-					// Record number of moves performed in this PR iteration
-					stats.recordMoves(pathRelinking.getLastMoveCount());
+                    // Record number of moves performed in this PR iteration
+                    stats.recordMoves(pathRelinking.getLastMoveCount());
 
                     // Complete the log line
                     // System.out.printf("-> Result: f=%.2f %s%s\n",
@@ -157,7 +157,7 @@ public class PathRelinkingThread implements Runnable {
 
                 // Stagnation detection (every 10,000 iterations)
                 if (prIterations % STAGNATION_CHECK_INTERVAL == 0 &&
-                    prIterations >= MIN_ITERATIONS_BEFORE_STAGNATION_CHECK) {
+                        prIterations >= MIN_ITERATIONS_BEFORE_STAGNATION_CHECK) {
 
                     int currentInsertions = stats.getSuccessfulInsertions();
 
@@ -175,8 +175,8 @@ public class PathRelinkingThread implements Runnable {
                     lastStagnationCheckInsertions = currentInsertions;
                 }
 
-                // Periodic statistics (every 100 iterations)
-                if (prIterations % 100 == 0) {
+                // Periodic statistics (every 500 iterations)
+                if (prIterations % 500 == 0) {
                     // Pass global best from AILS (thread-safe via volatile/synchronized)
                     stats.printStats(prIterations, ails.getBestF());
                 }
@@ -193,8 +193,8 @@ public class PathRelinkingThread implements Runnable {
         }
 
         double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
-        String reason = isTimeLimitExceeded() ? " (time limit reached)" :
-                        shouldStop ? " (stopped by AILS)" : " (stagnation)";
+        String reason = isTimeLimitExceeded() ? " (time limit reached)"
+                : shouldStop ? " (stopped by AILS)" : " (stagnation)";
         System.out.println("[PR Thread] Terminated after " +
                 prIterations + " iterations (" +
                 String.format("%.1f", elapsed) + "s)" + reason);
@@ -383,6 +383,9 @@ public class PathRelinkingThread implements Runnable {
      */
     private Solution applyPathRelinking(Solution s1, Solution s2) {
         try {
+            // Pass time limit to PathRelinking for early termination
+            pathRelinking.setGlobalTimeLimit(globalStartTime, globalTimeLimit);
+
             // Clone solutions to avoid modifying elite set copies
             Solution sCurrent = new Solution(instance, config);
             Solution sElite = new Solution(instance, config);

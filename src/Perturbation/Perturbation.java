@@ -43,11 +43,15 @@ public abstract class Perturbation
 	Node bestNode,aux;
 	Instance instance;
 	int limitAdj;
-	
+
 	IntraLocalSearch intraLocalSearch;
-	
+
+	// Reference to AILSII instance for history tracking
+	protected SearchMethod.AILSII ailsInstance;
+
 	public Perturbation(Instance instance,Config config,
-	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch) 
+	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch,
+	SearchMethod.AILSII ailsInstance) 
 	{
 		this.config=config;
 		this.instance=instance;
@@ -58,6 +62,7 @@ public abstract class Perturbation
 		this.numIterUpdate=config.getGamma();
 		this.limitAdj=config.getVarphi();
 		this.intraLocalSearch=intraLocalSearch;
+		this.ailsInstance=ailsInstance;
 	}
 	
 	public void setOrder()
@@ -106,7 +111,22 @@ public abstract class Perturbation
 		s.f=f;
 		s.numRoutes=this.numRoutes;
 	}
-	
+
+	/**
+	 * Record removed candidates for history tracking.
+	 * This method is called after customers are reinserted to track removal patterns.
+	 *
+	 * By default, this records all removed customers for CriticalRemoval tracking.
+	 * CriticalRemoval overrides this method to prevent self-reinforcement
+	 * (i.e., CriticalRemoval does not record its own removals).
+	 */
+	protected void recordCandidates() {
+		// Only record if AILSII instance is available and there are candidates
+		if (ailsInstance != null && countCandidates > 0) {
+			ailsInstance.recordRemovals(candidates, countCandidates);
+		}
+	}
+
 	protected Node getNode(Node no)
 	{
 		switch(selectedInsertionHeuristic)
@@ -205,15 +225,18 @@ public abstract class Perturbation
 		}
 	}
 	
-	public void addCandidates() 
+	public void addCandidates()
 	{
-		for (int i = 0; i < countCandidates; i++) 
+		for (int i = 0; i < countCandidates; i++)
 		{
 			node=candidates[i];
 			bestNode=getNode(node);
-			
+
 			f+=bestNode.route.addAfter(node, bestNode);
 		}
+
+		// Record removals for history tracking (after reinsertion)
+		recordCandidates();
 	}
 	
 	public int getIndexHeuristic() {

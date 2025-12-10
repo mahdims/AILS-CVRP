@@ -1,6 +1,7 @@
 package EliteSet;
 
 import Solution.Solution;
+import Solution.Node;
 import Data.Instance;
 import SearchMethod.Config;
 import java.util.ArrayList;
@@ -27,30 +28,30 @@ import java.util.concurrent.locks.ReadWriteLock;
 public class EliteSet {
 
     // Configuration
-    private final int maxSize;                    // Maximum elite set size
-    private final double beta;                    // Diversity weight (quality weight = 1-beta)
-    private final double minDiversityThreshold;   // Minimum diversity to accept
+    private final int maxSize; // Maximum elite set size
+    private final double beta; // Diversity weight (quality weight = 1-beta)
+    private final double minDiversityThreshold; // Minimum diversity to accept
 
     // Problem context (needed to create Solution objects)
     private final Instance instance;
     private final Config config;
 
     // Data structures
-    private final ArrayList<EliteSolution> elites;      // The elite solutions
-    private final double[][] distanceMatrix;            // Pairwise distances
-    private final double[] distanceSums;                // Sum of distances for each solution
-    private final DiversityMetric diversityMetric;      // Distance calculator
+    private final ArrayList<EliteSolution> elites; // The elite solutions
+    private final double[][] distanceMatrix; // Pairwise distances
+    private final double[] distanceSums; // Sum of distances for each solution
+    private final DiversityMetric diversityMetric; // Distance calculator
 
     // Best tracking (for quality score normalization)
-    private double bestF;                         // Best objective value in elite set
-    private double worstF;                        // Worst objective value in elite set
+    private double bestF; // Best objective value in elite set
+    private double worstF; // Worst objective value in elite set
 
     // Diversity range tracking (for diversity score normalization)
-    private double minDiversity;                  // Minimum diversity in elite set
-    private double maxDiversity;                  // Maximum diversity in elite set
+    private double minDiversity; // Minimum diversity in elite set
+    private double maxDiversity; // Maximum diversity in elite set
 
     // Statistics tracking
-    private int currentIteration;                 // Current search iteration
+    private int currentIteration; // Current search iteration
     private double previousBestF = Double.MAX_VALUE;
     private double previousAvgDiversity = 0.0;
     private int iterationsSinceLastPrint = 0;
@@ -63,11 +64,12 @@ public class EliteSet {
     /**
      * Constructor
      *
-     * @param maxSize Maximum number of solutions in elite set
-     * @param beta Diversity weight (0 = only quality, 1 = only diversity)
+     * @param maxSize               Maximum number of solutions in elite set
+     * @param beta                  Diversity weight (0 = only quality, 1 = only
+     *                              diversity)
      * @param minDiversityThreshold Minimum diversity required (e.g., 0.05)
-     * @param instance Problem instance
-     * @param config Algorithm configuration
+     * @param instance              Problem instance
+     * @param config                Algorithm configuration
      */
     public EliteSet(int maxSize, double beta, double minDiversityThreshold, Instance instance, Config config) {
         this.maxSize = maxSize;
@@ -92,7 +94,7 @@ public class EliteSet {
      * Try to insert a new solution into the elite set
      * Called when a new global best is found
      *
-     * @param candidate The solution to insert
+     * @param candidate  The solution to insert
      * @param candidateF Objective value of the candidate
      * @return true if solution was inserted, false otherwise
      */
@@ -112,7 +114,7 @@ public class EliteSet {
 
             // Check minimum diversity threshold (optional filter)
             if (candidateDiversity < minDiversityThreshold) {
-                return false;  // Too similar to existing solutions
+                return false; // Too similar to existing solutions
             }
 
             // Calculate combined score for candidate
@@ -135,7 +137,7 @@ public class EliteSet {
                     return true;
                 }
 
-                return false;  // Reject if score is worse than worst current
+                return false; // Reject if score is worse than worst current
             }
 
             // Elite set is full: find solution to eject
@@ -145,7 +147,7 @@ public class EliteSet {
             // Insert if candidate is better than solution to be ejected
             if (candidateScore > ejectScore) {
                 removeSolution(ejectIndex);
-                insertSolution(candidate, candidateF, elites.size());  // Insert at end after removal
+                insertSolution(candidate, candidateF, elites.size()); // Insert at end after removal
                 return true;
             }
 
@@ -196,7 +198,8 @@ public class EliteSet {
      * Calculate average distance from a candidate solution to all elite solutions
      */
     private double calculateAverageDistance(Solution candidate) {
-        if (elites.isEmpty()) return 0.0;
+        if (elites.isEmpty())
+            return 0.0;
 
         double sumDistance = 0.0;
         for (EliteSolution elite : elites) {
@@ -207,9 +210,11 @@ public class EliteSet {
     }
 
     /**
-     * Compute combined score: (1-beta)*normalized_quality + beta*normalized_diversity
+     * Compute combined score: (1-beta)*normalized_quality +
+     * beta*normalized_diversity
      *
-     * Both quality and diversity are normalized by their observed ranges in the elite set
+     * Both quality and diversity are normalized by their observed ranges in the
+     * elite set
      * to ensure fair weighting regardless of their natural scales.
      */
     private double computeCombinedScore(double objectiveValue, double avgDistance) {
@@ -218,7 +223,7 @@ public class EliteSet {
         if (worstF > bestF) {
             qualityScore = (worstF - objectiveValue) / (worstF - bestF);
         } else if (elites.size() == 1) {
-            qualityScore = 1.0;  // Only one solution, it's the best
+            qualityScore = 1.0; // Only one solution, it's the best
         }
 
         // Diversity score: normalize by observed range in elite set
@@ -227,7 +232,7 @@ public class EliteSet {
             // Normalize diversity to [0, 1] based on observed range
             diversityScore = (avgDistance - minDiversity) / (maxDiversity - minDiversity);
         } else if (elites.size() == 1) {
-            diversityScore = 1.0;  // Only one solution, maximum diversity
+            diversityScore = 1.0; // Only one solution, maximum diversity
         } else {
             // No diversity range yet, use raw value
             diversityScore = avgDistance;
@@ -259,9 +264,8 @@ public class EliteSet {
                 distanceMatrix[idx][idx] = 0.0;
             } else {
                 double dist = diversityMetric.calculateDistance(
-                    newElite.solution,
-                    elites.get(i).solution
-                );
+                        newElite.solution,
+                        elites.get(i).solution);
                 distanceMatrix[idx][i] = dist;
                 distanceMatrix[i][idx] = dist;
 
@@ -279,8 +283,10 @@ public class EliteSet {
         }
 
         // Update best and worst objective values
-        if (candidateF < bestF) bestF = candidateF;
-        if (candidateF > worstF) worstF = candidateF;
+        if (candidateF < bestF)
+            bestF = candidateF;
+        if (candidateF > worstF)
+            worstF = candidateF;
 
         // Update scores for all solutions (O(n) operation)
         updateAllScores();
@@ -290,7 +296,8 @@ public class EliteSet {
      * Remove a solution at a specific index (efficient O(n) operation)
      */
     private void removeSolution(int index) {
-        if (index < 0 || index >= elites.size()) return;
+        if (index < 0 || index >= elites.size())
+            return;
 
         // Update distance sums for all other solutions
         for (int i = 0; i < elites.size(); i++) {
@@ -332,8 +339,10 @@ public class EliteSet {
         worstF = elites.get(0).objectiveValue;
 
         for (EliteSolution elite : elites) {
-            if (elite.objectiveValue < bestF) bestF = elite.objectiveValue;
-            if (elite.objectiveValue > worstF) worstF = elite.objectiveValue;
+            if (elite.objectiveValue < bestF)
+                bestF = elite.objectiveValue;
+            if (elite.objectiveValue > worstF)
+                worstF = elite.objectiveValue;
         }
     }
 
@@ -343,7 +352,8 @@ public class EliteSet {
      */
     private void updateAllScores() {
         int n = elites.size();
-        if (n == 0) return;
+        if (n == 0)
+            return;
 
         // First pass: update average distances and track diversity range
         minDiversity = Double.MAX_VALUE;
@@ -357,8 +367,10 @@ public class EliteSet {
             elite.avgDistanceToSet = avgDistance;
 
             // Track diversity range
-            if (avgDistance < minDiversity) minDiversity = avgDistance;
-            if (avgDistance > maxDiversity) maxDiversity = avgDistance;
+            if (avgDistance < minDiversity)
+                minDiversity = avgDistance;
+            if (avgDistance > maxDiversity)
+                maxDiversity = avgDistance;
         }
 
         // Second pass: compute combined scores using normalized diversity
@@ -390,7 +402,8 @@ public class EliteSet {
      * Shows quality and diversity progression
      */
     private void printMonitoring() {
-        if (elites.isEmpty()) return;
+        if (elites.isEmpty())
+            return;
 
         // Calculate current statistics
         double currentBestF = bestF;
@@ -418,7 +431,7 @@ public class EliteSet {
 
         // Print single-line summary
         System.out.printf("[Elite] Size:%d/%d | Best:%.2f->%.2f(%+.1f%%) | Avg:%.2f | " +
-                        "AvgDiv:%.3f->%.3f(%+.1f%%) | DivRange:[%.3f,%.3f] | QualRange:%.2f | Iter:%d\n",
+                "AvgDiv:%.3f->%.3f(%+.1f%%) | DivRange:[%.3f,%.3f] | QualRange:%.2f | Iter:%d\n",
                 elites.size(), maxSize,
                 previousBestF == Double.MAX_VALUE ? currentBestF : previousBestF,
                 currentBestF,
@@ -444,14 +457,15 @@ public class EliteSet {
      * Returns list of elite solutions (solutions are already clones, safe to use)
      *
      * USAGE: Call this from crossover thread to get stable copy
-     * Note: Solutions in elite set are already cloned copies, safe for read-only access
+     * Note: Solutions in elite set are already cloned copies, safe for read-only
+     * access
      */
     public List<Solution> getSnapshotForCrossover() {
         lock.readLock().lock();
         try {
             List<Solution> snapshot = new ArrayList<>(elites.size());
             for (EliteSolution elite : elites) {
-                snapshot.add(elite.solution);  // Solutions are already clones
+                snapshot.add(elite.solution); // Solutions are already clones
             }
             return snapshot;
         } finally {
@@ -478,7 +492,8 @@ public class EliteSet {
     public Solution getBestSolution() {
         lock.readLock().lock();
         try {
-            if (elites.isEmpty()) return null;
+            if (elites.isEmpty())
+                return null;
 
             EliteSolution best = elites.get(0);
             for (EliteSolution elite : elites) {
@@ -487,7 +502,7 @@ public class EliteSet {
                 }
             }
 
-            return best.solution;  // Already a cloned solution
+            return best.solution; // Already a cloned solution
         } finally {
             lock.readLock().unlock();
         }
@@ -560,8 +575,10 @@ public class EliteSet {
 
             for (EliteSolution elite : elites) {
                 double d = elite.avgDistanceToSet;
-                if (d < min) min = d;
-                if (d > max) max = d;
+                if (d < min)
+                    min = d;
+                if (d > max)
+                    max = d;
                 avg += d;
             }
             avg /= elites.size();
@@ -600,7 +617,7 @@ public class EliteSet {
             for (int i = 0; i < elites.size(); i++) {
                 EliteSolution e = elites.get(i);
                 System.out.printf("  [%d] F=%.2f, AvgDist=%.4f, Score=%.4f, Iter=%d\n",
-                    i, e.objectiveValue, e.avgDistanceToSet, e.combinedScore, e.insertionIteration);
+                        i, e.objectiveValue, e.avgDistanceToSet, e.combinedScore, e.insertionIteration);
             }
             System.out.println("====================================");
         } finally {
