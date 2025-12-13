@@ -277,6 +277,7 @@ public class InputParameters
 		parameterSources.put("eliteSetSize", "default");
 		parameterSources.put("eliteSetBeta", "default");
 		parameterSources.put("eliteSetMinDiversity", "default");
+		parameterSources.put("warmStart", "default");
 	}
 
 	/**
@@ -414,6 +415,10 @@ public class InputParameters
 					config.setAosEnabled(Boolean.parseBoolean(value));
 					parameterSources.put(key, source);
 					break;
+				case "aos.decoupled":
+					config.setAosDecoupled(Boolean.parseBoolean(value));
+					parameterSources.put(key, source);
+					break;
 				case "aos.segmentLength":
 					config.setAosSegmentLength(Integer.parseInt(value));
 					parameterSources.put(key, source);
@@ -451,6 +456,12 @@ public class InputParameters
 				// Insertion heuristics (recreate methods)
 				case "insertionHeuristics":
 					parseInsertionHeuristicsList(value, source);
+					break;
+
+				// Warm start parameter
+				case "warmStart":
+					config.setWarmStartEnabled(Boolean.parseBoolean(value));
+					parameterSources.put(key, source);
 					break;
 
 				default:

@@ -5,6 +5,14 @@
 # Priority: defaults < parameters.txt < command-line arguments
 
 # ============================================================
+# Warm Start Configuration
+# ============================================================
+# Enable warm start to load initial solution from .sol files
+# Path structure: warm_start/<dataset>/<instance>.sol
+# If file not found, falls back to constructive heuristic
+warmStart=false
+
+# ============================================================
 # Core Algorithm Parameters
 # ============================================================
 
@@ -24,13 +32,22 @@ varphi=40
 perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval,SISR
 
 
-# Insertion heuristics (recreate methods) - comma-separated
-# Available: Distance, Cost
-insertionHeuristics=Distance,Cost
+# Insertion heuristics (repair/recreate methods) - comma-separated
+# Available:
+#   - Distance: Greedy insertion based on distance increase
+#   - Cost: Greedy insertion based on cost increase (same as Distance for CVRP)
+#   - Regret2: Regret-2 heuristic (2nd best - best)
+#   - Regret3: Regret-3 heuristic (sum of regrets for top 3 positions)
+#   - Regret4: Regret-4 heuristic (sum of regrets for top 4 positions)
+#   - RegretRandom: Regret-2 with random noise for diversification
+#
+# Recommended for balanced performance: Distance,Regret2,Regret3
+# For more exploration: Distance,Regret2,Regret3,RegretRandom
+insertionHeuristics=Distance, Cost
 
 # Acceptance threshold range
 etaMin=0.01
-etaMax=1.0
+etaMax=0.5
 
 # Solution comparison precision
 epsilon=0.01
@@ -81,6 +98,12 @@ eliteSetMinDiversity=0.15
 # Enable/disable adaptive operator selection
 # If disabled, operators are selected uniformly at random
 aos.enabled=true
+
+# Enable decoupled destroy-repair selection (recommended by Pisinger & Ropke 2019)
+# When true: destroy and repair operators are selected and scored independently
+# When false: only destroy operators are tracked (legacy mode)
+# Decoupled selection learns faster and generalizes better
+aos.decoupled=true
 
 # Segment length (iterations before probability update)
 # Based on Ropke & Pisinger 2006 but adapted for faster VRP dynamics

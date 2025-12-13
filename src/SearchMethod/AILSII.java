@@ -70,8 +70,8 @@ public class AILSII {
 	// Tracks how many times each customer has been removed during search
 	private int[] customerRemovalCounts;
 
-	// Adaptive Operator Selection
-	private AdaptiveOperatorSelection aos;
+	// Adaptive Operator Selection (Decoupled destroy-repair)
+	private DecoupledAOS daos;
 
 	// Path Relinking thread (runs in parallel)
 	PathRelinkingThread prThread;
@@ -79,6 +79,9 @@ public class AILSII {
 
 	// PR->AILS communication: volatile flag for thread-safe signaling
 	private volatile boolean prFoundBetter = false;
+	// Temporary storage for PR solution (to avoid race condition)
+	private Solution prPendingSolution;
+	private double prPendingF;
 
 	LocalSearch localSearch;
 
@@ -149,6 +152,10 @@ public class AILSII {
 		// Array size = number of customers + 1 (index 0 is depot, not tracked)
 		this.customerRemovalCounts = new int[instance.getSize() + 1];
 
+		// Initialize PR->AILS communication buffers
+		this.prPendingSolution = new Solution(instance, config);
+		this.prPendingF = Double.MAX_VALUE;
+
 		// Initialize Path Relinking thread
 		if (config.getPrConfig().isEnabled()) {
 			IntraLocalSearch prIntraLS = new IntraLocalSearch(instance, config);
@@ -187,13 +194,22 @@ public class AILSII {
 			e.printStackTrace();
 		}
 
-		// Initialize Adaptive Operator Selection
+		// Initialize Adaptive Operator Selection (Decoupled destroy-repair)
 		if (config.isAosEnabled()) {
-			String[] operatorNames = new String[config.getPerturbation().length];
+			// Destroy operator names (perturbation operators)
+			String[] destroyOperatorNames = new String[config.getPerturbation().length];
 			for (int i = 0; i < config.getPerturbation().length; i++) {
-				operatorNames[i] = config.getPerturbation()[i].toString();
+				destroyOperatorNames[i] = config.getPerturbation()[i].toString();
 			}
-			this.aos = new AdaptiveOperatorSelection(operatorNames, rand, config);
+
+			// Repair operator names (insertion heuristics)
+			String[] repairOperatorNames = new String[config.getInsertionHeuristics().length];
+			for (int i = 0; i < config.getInsertionHeuristics().length; i++) {
+				repairOperatorNames[i] = config.getInsertionHeuristics()[i].toString();
+			}
+
+			// Create decoupled AOS (tracks destroy and repair independently)
+			this.daos = new DecoupledAOS(destroyOperatorNames, repairOperatorNames, rand, config);
 		}
 
 	}
@@ -239,12 +255,49 @@ public class AILSII {
 		iterator = 0;
 		first = System.currentTimeMillis();
 		lastHeartbeatTime = first; // Initialize heartbeat timer
-		referenceSolution.numRoutes = instance.getMinNumberRoutes();
-		constructSolution.construct(referenceSolution);
+
+		// Try warm start if enabled, otherwise use constructive heuristic
+		boolean warmStartLoaded = false;
+		if (referenceSolution.config.isWarmStartEnabled()) {
+			warmStartLoaded = SolutionLoader.loadSolution(referenceSolution, instance, "warm_start");
+		}
+
+		if (!warmStartLoaded) {
+			// Fallback to original constructive method
+			referenceSolution.numRoutes = instance.getMinNumberRoutes();
+			constructSolution.construct(referenceSolution);
+		}
+
+		// Logging for warm start analysis
+		if (warmStartLoaded) {
+			System.out.println("=== Warm Start Solution Analysis ===");
+			System.out.println("After loading:");
+			System.out.println("  Cost: " + referenceSolution.f);
+			System.out.println("  Routes: " + referenceSolution.numRoutes);
+			System.out.println("  Infeasibility: " + referenceSolution.infeasibility());
+			System.out.println("  Is feasible: " + referenceSolution.feasible());
+		}
 
 		feasibilityOperator.makeFeasible(referenceSolution);
+
+		if (warmStartLoaded) {
+			System.out.println("After feasibility phase:");
+			System.out.println("  Cost: " + referenceSolution.f);
+			System.out.println("  Infeasibility: " + referenceSolution.infeasibility());
+			System.out.println("  Is feasible: " + referenceSolution.feasible());
+		}
+
 		localSearch.localSearch(referenceSolution, true);
+
+		if (warmStartLoaded) {
+			System.out.println("After local search:");
+			System.out.println("  Cost: " + referenceSolution.f);
+			System.out.println("  Routes: " + referenceSolution.numRoutes);
+			System.out.println("====================================");
+		}
+
 		bestSolution.clone(referenceSolution);
+		bestF = referenceSolution.f;
 
 		// Apply fleet minimization on initial solution
 		Config config = referenceSolution.config;
@@ -266,6 +319,44 @@ public class AILSII {
 		while (!stoppingCriterion()) {
 			iterator++;
 
+			// Process pending PR injection (deferred update pattern for thread safety)
+			// This must happen at the start of iteration before we use referenceSolution
+			if (prFoundBetter) {
+				// Update best solution and reference solution from PR pending buffer
+				bestF = prPendingF;
+				bestSolution.clone(prPendingSolution);
+				referenceSolution.clone(prPendingSolution);
+				iteratorMF = iterator;
+				timeAF = (double) (System.currentTimeMillis() - first) / 1000;
+
+				// Reset heartbeat timer on improvement from PR
+				lastHeartbeatTime = System.currentTimeMillis();
+
+				// Reset omega for all perturbations to ideal distance
+				for (OmegaAdjustment omegaAdj : omegaSetup.values()) {
+					omegaAdj.setActualOmega(idealDist.idealDist);
+				}
+
+				// Reset AOS scores (segment invalidated by trajectory change)
+				if (daos != null) {
+					daos.getDestroyAOS().resetScores();
+					daos.getRepairAOS().resetScores();
+				}
+
+				// Log the PR injection
+				if (print) {
+					System.out.println("[PR->AILS] New best from PR: " + bestF
+							+ " gap: " + deci.format(getGap()) + "%"
+							+ " K: " + prPendingSolution.numRoutes
+							+ " iteration: " + iterator
+							+ " time: " + timeAF
+							+ " [Omega + AOS RESET]");
+				}
+
+				// Clear flag for next PR injection
+				prFoundBetter = false;
+			}
+
 			// Apply fleet minimization probabilistically in first alpha% of run
 			if (config.getFleetMinimizationRate() > 0 && isInFirstaPrecent()) {
 				// Probabilistic application: 0.5% chance per iteration
@@ -276,27 +367,44 @@ public class AILSII {
 
 			solution.clone(referenceSolution);
 
-			// Select operator using AOS (if enabled) or uniform random
+			// Select operators using Decoupled AOS (if enabled) or uniform random
 			String perturbName;
-			if (aos != null) {
-				// AOS: Select operator based on learned probabilities
-				perturbName = aos.selectOperator();
-				// Find the operator object by name
+			String repairName = null;
+			InsertionHeuristic selectedRepair = null;
+
+			if (daos != null) {
+				// Decoupled AOS: Select destroy and repair operators independently
+				perturbName = daos.selectDestroyOperator();
+				repairName = daos.selectRepairOperator();
+
+				// Find the destroy operator object by name
 				for (Perturbation op : pertubOperators) {
 					if (op.getPerturbationType().toString().equals(perturbName)) {
 						selectedPerturbation = op;
 						break;
 					}
 				}
+
+				// Find the repair operator (insertion heuristic) by name
+				for (InsertionHeuristic ih : InsertionHeuristic.values()) {
+					if (ih.toString().equals(repairName)) {
+						selectedRepair = ih;
+						break;
+					}
+				}
+
+				// Set the selected repair operator for the perturbation
+				selectedPerturbation.setSelectedInsertionHeuristic(selectedRepair);
 			} else {
 				// Fallback: Uniform random selection (original behavior)
 				selectedPerturbation = pertubOperators[rand.nextInt(pertubOperators.length)];
 				perturbName = selectedPerturbation.getPerturbationType() + "";
+				// Let perturbation randomly select its own repair operator
 			}
 
 			perturbationUsageCount.put(perturbName, perturbationUsageCount.get(perturbName) + 1);
 
-			// Track last operator for success rate analysis
+			// Track last operators for success rate analysis
 			lastOperatorUsed = perturbName;
 
 			selectedPerturbation.applyPerturbation(solution);
@@ -313,41 +421,38 @@ public class AILSII {
 			boolean accepted = acceptanceCriterion.acceptSolution(solution);
 			if (accepted) {
 				referenceSolution.clone(solution);
+
+				// Try to insert accepted solution into elite set for diversity
+				// This helps build a diverse elite set beyond just global best solutions
+				eliteSet.tryInsert(solution, solution.f);
 			}
 
-			// Provide feedback to AOS based on outcome
-			if (aos != null) {
-				// Check if PR injected a solution - if so, skip AOS scoring
-				// because the outcome is not due to the current operator's performance
-				if (prFoundBetter) {
-					// Reset flag for next iteration
-					prFoundBetter = false;
-					aos.resetScores();
-					// Skip AOS outcome recording - PR injection is external event
+			// Provide feedback to Decoupled AOS based on outcome
+			// Note: PR injections are handled at loop start, so we always record outcomes here
+			if (daos != null) {
+				int outcomeType;
+				double bestFBeforeIteration = lastSolutionF; // F before this operator was applied
+
+				if (solution.f < bestF) {
+					// New global best found
+					outcomeType = 1;
+				} else if (solution.f < bestFBeforeIteration) {
+					// Improved solution (better than previous reference)
+					outcomeType = 2;
+				} else if (accepted) {
+					// Accepted solution (by SA criterion)
+					outcomeType = 3;
 				} else {
-					int outcomeType;
-					double bestFBeforeIteration = lastSolutionF; // F before this operator was applied
-
-					if (solution.f < bestF) {
-						// New global best found
-						outcomeType = 1;
-					} else if (solution.f < bestFBeforeIteration) {
-						// Improved solution (better than previous reference)
-						outcomeType = 2;
-					} else if (accepted) {
-						// Accepted solution (by SA criterion)
-						outcomeType = 3;
-					} else {
-						// Rejected solution
-						outcomeType = 0;
-					}
-
-					aos.recordOutcome(perturbName, outcomeType);
+					// Rejected solution
+					outcomeType = 0;
 				}
+
+				// Record outcome for BOTH destroy and repair operators (decoupled)
+				daos.recordOutcome(perturbName, repairName, outcomeType);
 
 				// Log operator probabilities at segment boundaries
 				if (iterator % 2000 == 0) {
-					aos.printStats(iterator);
+					daos.printStats(iterator);
 				}
 			}
 
@@ -601,37 +706,24 @@ public class AILSII {
 	 * Called by PR thread when it finds a solution better than global best
 	 * Thread-safe method for PR->AILS communication
 	 *
+	 * IMPORTANT: Uses deferred update pattern to avoid race conditions
+	 * - PR thread stores solution in pending buffer and sets flag
+	 * - Main AILS thread processes the update at a safe point (between iterations)
+	 *
 	 * @param prSolution Solution found by PR
 	 * @param prF        Objective value of PR solution
 	 */
 	public synchronized void notifyPRBetterSolution(Solution prSolution, double prF) {
 		if (prF < bestF - epsilon) {
-			// Update best solution
-			bestF = prF;
-			bestSolution.clone(prSolution);
-			referenceSolution.clone(prSolution);
-			iteratorMF = iterator;
-			timeAF = (double) (System.currentTimeMillis() - first) / 1000;
+			// Store PR solution in pending buffer (avoid race condition with main thread)
+			prPendingSolution.clone(prSolution);
+			prPendingF = prF;
 
-			// Reset heartbeat timer on improvement from PR
-			lastHeartbeatTime = System.currentTimeMillis();
-
-			// Reset omega for all perturbations to ideal distance
-			for (OmegaAdjustment omegaAdj : omegaSetup.values()) {
-				omegaAdj.setActualOmega(idealDist.idealDist);
-			}
-
-			// Set flag for main thread
+			// Set flag to signal main thread to process the update
+			// Main thread will update referenceSolution at a safe point
 			prFoundBetter = true;
 
-			if (print) {
-				System.out.println("[PR->AILS] New best from PR: " + bestF
-						+ " gap: " + deci.format(getGap()) + "%"
-						+ " K: " + prSolution.numRoutes
-						+ " iteration: " + iterator
-						+ " time: " + timeAF
-						+ " [Omega + AOS RESET]");
-			}
+			// Note: Detailed logging moved to main thread where actual update happens
 		}
 	}
 

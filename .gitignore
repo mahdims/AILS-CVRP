@@ -4,3 +4,6 @@ Resultados/
 /.settings/
 .classpath
 .project
+solutions/
+warm_start/
+*.jar

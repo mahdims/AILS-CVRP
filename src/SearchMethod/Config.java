@@ -34,6 +34,7 @@ public class Config implements Cloneable {
 
 	// --------------------Adaptive Operator Selection-------------------
 	boolean aosEnabled;
+	boolean aosDecoupled;  // Decoupled destroy-repair selection (recommended by Pisinger & Ropke 2019)
 	int aosSegmentLength;
 	double aosReactionFactor;
 	double aosMinProbability;
@@ -44,6 +45,9 @@ public class Config implements Cloneable {
 
 	// --------------------Path Relinking-------------------
 	PathRelinkingConfig prConfig;
+
+	// --------------------Warm Start-------------------
+	boolean warmStartEnabled;
 
 	public Config() {
 		// ----------------------------Main----------------------------
@@ -77,6 +81,7 @@ public class Config implements Cloneable {
 		this.eliteSetMinDiversity = 0.15;
 
 		this.aosEnabled = true;
+		this.aosDecoupled = true;  // Decoupled destroy-repair selection (Pisinger & Ropke 2019)
 		this.aosSegmentLength = 20;
 		this.aosReactionFactor = 0.2;
 		this.aosMinProbability = 0.05;
@@ -85,7 +90,9 @@ public class Config implements Cloneable {
 		this.aosScoreAccepted = 13.0;
 		this.aosScoreRejected = 0.0;
 
-		this.prConfig = new PathRelinkingConfig();
+		this.prConfig = PathRelinkingConfig.aggressive();
+
+		this.warmStartEnabled = false;
 	}
 
 	public Config clone() {
@@ -116,7 +123,8 @@ public class Config implements Cloneable {
 				+ "\nfleetMinimizationMaxIter: " + fleetMinimizationMaxIter
 				+ "\neliteSetSize: " + eliteSetSize
 				+ "\neliteSetBeta: " + deci.format(eliteSetBeta)
-				+ "\neliteSetMinDiversity: " + deci.format(eliteSetMinDiversity);
+				+ "\neliteSetMinDiversity: " + deci.format(eliteSetMinDiversity)
+				+ "\nwarmStartEnabled: " + warmStartEnabled;
 	}
 
 	/**
@@ -163,7 +171,9 @@ public class Config implements Cloneable {
 				+ "\naos.scoreAccepted: " + deci.format(aosScoreAccepted) + " ("
 				+ sources.getOrDefault("aos.scoreAccepted", "default") + ")"
 				+ "\naos.scoreRejected: " + deci.format(aosScoreRejected) + " ("
-				+ sources.getOrDefault("aos.scoreRejected", "default") + ")";
+				+ sources.getOrDefault("aos.scoreRejected", "default") + ")"
+				+ "\nwarmStartEnabled: " + warmStartEnabled + " ("
+				+ sources.getOrDefault("warmStart", "default") + ")";
 	}
 
 	public DecimalFormat getDeci() {
@@ -377,12 +387,28 @@ public class Config implements Cloneable {
 		this.aosScoreRejected = aosScoreRejected;
 	}
 
+	public boolean isAosDecoupled() {
+		return aosDecoupled;
+	}
+
+	public void setAosDecoupled(boolean aosDecoupled) {
+		this.aosDecoupled = aosDecoupled;
+	}
+
 	public PathRelinkingConfig getPrConfig() {
 		return prConfig;
 	}
 
 	public void setPrConfig(PathRelinkingConfig prConfig) {
 		this.prConfig = prConfig;
+	}
+
+	public boolean isWarmStartEnabled() {
+		return warmStartEnabled;
+	}
+
+	public void setWarmStartEnabled(boolean warmStartEnabled) {
+		this.warmStartEnabled = warmStartEnabled;
 	}
 
 }

@@ -26,7 +26,8 @@ public abstract class Perturbation
 
 	InsertionHeuristic[]insertionHeuristics;
 	public InsertionHeuristic selectedInsertionHeuristic;
-	
+	private InsertionHeuristic externallySetInsertionHeuristic = null;  // Set by DecoupledAOS
+
 	Node node;
 	
 	public PerturbationType perturbationType;
@@ -49,9 +50,12 @@ public abstract class Perturbation
 	// Reference to AILSII instance for history tracking
 	protected SearchMethod.AILSII ailsInstance;
 
+	// Regret-based insertion operator (for advanced repair heuristics)
+	private RegretInsertion regretInsertion;
+
 	public Perturbation(Instance instance,Config config,
 	HashMap<String, OmegaAdjustment> omegaSetup, IntraLocalSearch intraLocalSearch,
-	SearchMethod.AILSII ailsInstance) 
+	SearchMethod.AILSII ailsInstance)
 	{
 		this.config=config;
 		this.instance=instance;
@@ -63,6 +67,9 @@ public abstract class Perturbation
 		this.limitAdj=config.getVarphi();
 		this.intraLocalSearch=intraLocalSearch;
 		this.ailsInstance=ailsInstance;
+
+		// Initialize RegretInsertion for regret-based repair heuristics
+		this.regretInsertion = new RegretInsertion(instance, config.getKnnLimit());
 	}
 	
 	public void setOrder()
@@ -93,16 +100,23 @@ public abstract class Perturbation
 			routes[i].first.modified=false;
 		}
 		
-		for (int i = 0; i < size; i++) 
+		for (int i = 0; i < size; i++)
 			solution[i].modified=false;
-	
-		indexHeuristic=rand.nextInt(insertionHeuristics.length);
-		selectedInsertionHeuristic=insertionHeuristics[indexHeuristic];
-		
+
+		// Use externally-set insertion heuristic (from DecoupledAOS) if available
+		// Otherwise, select randomly (legacy behavior)
+		if (externallySetInsertionHeuristic != null) {
+			selectedInsertionHeuristic = externallySetInsertionHeuristic;
+			externallySetInsertionHeuristic = null;  // Reset for next iteration
+		} else {
+			indexHeuristic=rand.nextInt(insertionHeuristics.length);
+			selectedInsertionHeuristic=insertionHeuristics[indexHeuristic];
+		}
+
 		chosenOmega=omegaSetup.get(perturbationType+"");
 		omega=chosenOmega.getActualOmega();
 		omega=Math.min(omega, size);
-		
+
 		countCandidates=0;
 	}
 	
@@ -110,6 +124,16 @@ public abstract class Perturbation
 	{
 		s.f=f;
 		s.numRoutes=this.numRoutes;
+	}
+
+	/**
+	 * Set insertion heuristic externally (used by DecoupledAOS)
+	 * This overrides the random selection in setSolution()
+	 *
+	 * @param heuristic Insertion heuristic to use for next perturbation
+	 */
+	public void setSelectedInsertionHeuristic(InsertionHeuristic heuristic) {
+		this.externallySetInsertionHeuristic = heuristic;
 	}
 
 	/**
@@ -227,12 +251,24 @@ public abstract class Perturbation
 	
 	public void addCandidates()
 	{
-		for (int i = 0; i < countCandidates; i++)
-		{
-			node=candidates[i];
-			bestNode=getNode(node);
+		// Check if using regret-based insertion heuristic
+		if (selectedInsertionHeuristic != null && selectedInsertionHeuristic.isRegret()) {
+			// Regret-based insertion: insert all candidates using regret heuristic
+			double costDelta = regretInsertion.insertWithRegret(
+				solution, routes, numRoutes,
+				candidates, countCandidates,
+				selectedInsertionHeuristic
+			);
+			f += costDelta;
+		} else {
+			// Greedy insertion: insert candidates one-by-one using getNode()
+			for (int i = 0; i < countCandidates; i++)
+			{
+				node=candidates[i];
+				bestNode=getNode(node);
 
-			f+=bestNode.route.addAfter(node, bestNode);
+				f+=bestNode.route.addAfter(node, bestNode);
+			}
 		}
 
 		// Record removals for history tracking (after reinsertion)
