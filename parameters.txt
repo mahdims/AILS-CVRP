@@ -43,7 +43,7 @@ perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval,SISR
 #
 # Recommended for balanced performance: Distance,Regret2,Regret3
 # For more exploration: Distance,Regret2,Regret3,RegretRandom
-insertionHeuristics=Distance, Cost
+insertionHeuristics=Distance,Cost,Regret2,Regret3,RegretRandom
 
 # Acceptance threshold range
 etaMin=0.01

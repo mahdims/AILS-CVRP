@@ -52,6 +52,11 @@ public class AILSII {
 	String lastOperatorUsed = null;
 	double lastSolutionF = Double.MAX_VALUE;
 
+	// Insertion heuristic tracking (repair operators)
+	HashMap<String, Integer> insertionUsageCount = new HashMap<String, Integer>();
+	HashMap<String, Integer> insertionSuccessCount = new HashMap<String, Integer>();
+	String lastInsertionUsed = null;
+
 	double distanceLS;
 
 	Perturbation[] pertubOperators;
@@ -133,6 +138,13 @@ public class AILSII {
 			omegaSetup.put(config.getPerturbation()[i] + "", newOmegaAdjustment);
 			perturbationUsageCount.put(config.getPerturbation()[i] + "", 0);
 			operatorSuccessCount.put(config.getPerturbation()[i] + "", 0);
+		}
+
+		// Initialize insertion heuristic tracking
+		for (int i = 0; i < config.getInsertionHeuristics().length; i++) {
+			String insertionName = config.getInsertionHeuristics()[i] + "";
+			insertionUsageCount.put(insertionName, 0);
+			insertionSuccessCount.put(insertionName, 0);
 		}
 
 		this.acceptanceCriterion = new AcceptanceCriterion(instance, config, executionMaximumLimit);
@@ -400,12 +412,23 @@ public class AILSII {
 				selectedPerturbation = pertubOperators[rand.nextInt(pertubOperators.length)];
 				perturbName = selectedPerturbation.getPerturbationType() + "";
 				// Let perturbation randomly select its own repair operator
+				// Get the selected repair operator for tracking
+				selectedRepair = selectedPerturbation.getSelectedInsertionHeuristic();
+				if (selectedRepair != null) {
+					repairName = selectedRepair.toString();
+				}
 			}
 
 			perturbationUsageCount.put(perturbName, perturbationUsageCount.get(perturbName) + 1);
 
 			// Track last operators for success rate analysis
 			lastOperatorUsed = perturbName;
+			lastInsertionUsed = repairName;
+
+			// Track insertion heuristic usage
+			if (repairName != null && insertionUsageCount.containsKey(repairName)) {
+				insertionUsageCount.put(repairName, insertionUsageCount.get(repairName) + 1);
+			}
 
 			selectedPerturbation.applyPerturbation(solution);
 			feasibilityOperator.makeFeasible(solution);
@@ -502,9 +525,9 @@ public class AILSII {
 		summary.append("(total=").append(iterator).append(" iterations)");
 		System.out.println(summary.toString());
 
-		// Print detailed success rate analysis
+		// Print detailed success rate analysis for DESTROY operators
 		System.out.println("\n==================================================");
-		System.out.println("    Operator Effectiveness Analysis              ");
+		System.out.println("    Destroy Operator Effectiveness               ");
 		System.out.println("==================================================");
 		System.out.printf("%-25s %8s %10s %10s%n", "Operator", "Uses", "Improv.", "Rate");
 		System.out.println("--------------------------------------------------");
@@ -529,6 +552,36 @@ public class AILSII {
 		System.out.printf("%-25s %8d %10d %9.2f%%%n",
 				"TOTAL", totalUses, totalImprovements, overallRate);
 		System.out.println("==================================================\n");
+
+		// Print detailed success rate analysis for INSERTION HEURISTICS (repair operators)
+		if (!insertionUsageCount.isEmpty()) {
+			System.out.println("==================================================");
+			System.out.println("    Insertion Heuristic Effectiveness            ");
+			System.out.println("==================================================");
+			System.out.printf("%-25s %8s %10s %10s%n", "Heuristic", "Uses", "Improv.", "Rate");
+			System.out.println("--------------------------------------------------");
+
+			int insertTotalUses = 0;
+			int insertTotalImprovements = 0;
+
+			for (String name : insertionUsageCount.keySet()) {
+				int uses = insertionUsageCount.get(name);
+				int improvements = insertionSuccessCount.getOrDefault(name, 0);
+				double rate = uses > 0 ? 100.0 * improvements / uses : 0.0;
+
+				insertTotalUses += uses;
+				insertTotalImprovements += improvements;
+
+				System.out.printf("%-25s %8d %10d %9.2f%%%n",
+						name, uses, improvements, rate);
+			}
+
+			System.out.println("--------------------------------------------------");
+			double insertOverallRate = insertTotalUses > 0 ? 100.0 * insertTotalImprovements / insertTotalUses : 0.0;
+			System.out.printf("%-25s %8d %10d %9.2f%%%n",
+					"TOTAL", insertTotalUses, insertTotalImprovements, insertOverallRate);
+			System.out.println("==================================================\n");
+		}
 	}
 
 	public void evaluateSolution() {
@@ -543,6 +596,12 @@ public class AILSII {
 			if (lastOperatorUsed != null) {
 				operatorSuccessCount.put(lastOperatorUsed,
 						operatorSuccessCount.get(lastOperatorUsed) + 1);
+			}
+
+			// Track which insertion heuristic led to this improvement
+			if (lastInsertionUsed != null && insertionSuccessCount.containsKey(lastInsertionUsed)) {
+				insertionSuccessCount.put(lastInsertionUsed,
+						insertionSuccessCount.get(lastInsertionUsed) + 1);
 			}
 
 			// Reset heartbeat timer on improvement

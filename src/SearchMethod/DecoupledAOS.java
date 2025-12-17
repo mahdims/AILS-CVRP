@@ -10,17 +10,20 @@ import java.util.Random;
  *
  * KEY DESIGN PRINCIPLE:
  * --------------------
- * Destroy and repair operators are selected INDEPENDENTLY and scored INDEPENDENTLY.
- * This allows the algorithm to learn which destroy operators work well and which
- * repair operators work well, rather than learning which destroy-repair PAIRS work.
+ * Destroy and repair operators are selected INDEPENDENTLY and scored
+ * INDEPENDENTLY.
+ * This allows the algorithm to learn which destroy operators work well and
+ * which
+ * repair operators work well, rather than learning which destroy-repair PAIRS
+ * work.
  *
  * RATIONALE (from Pisinger & Ropke 2019):
  * ---------------------------------------
  * "Decoupled selection is now the standard in ALNS implementations because:
- *  1. Reduces combinatorial explosion (N destroy × M repair = N×M pairs)
- *  2. Faster learning (N+M parameters instead of N×M parameters)
- *  3. Better generalization (destroy quality independent of repair quality)
- *  4. Empirically superior performance on most benchmarks"
+ * 1. Reduces combinatorial explosion (N destroy . M repair = N.M pairs)
+ * 2. Faster learning (N+M parameters instead of N.M parameters)
+ * 3. Better generalization (destroy quality independent of repair quality)
+ * 4. Empirically superior performance on most benchmarks"
  *
  * EXAMPLE:
  * --------
@@ -28,12 +31,12 @@ import java.util.Random;
  * but RandomInsertion (repair) works poorly with ALL destroy methods.
  *
  * - Coupled approach: Would need N iterations to learn that RandomInsertion
- *   is bad (once per destroy operator), and might incorrectly penalize
- *   RouteRemoval when paired with RandomInsertion.
+ * is bad (once per destroy operator), and might incorrectly penalize
+ * RouteRemoval when paired with RandomInsertion.
  *
  * - Decoupled approach: Learns in 1 iteration that RandomInsertion is bad
- *   (regardless of destroy), and correctly rewards RouteRemoval based on
- *   average performance across all repairs.
+ * (regardless of destroy), and correctly rewards RouteRemoval based on
+ * average performance across all repairs.
  *
  * USAGE:
  * ------
@@ -59,10 +62,12 @@ public class DecoupledAOS {
     /**
      * Constructor
      *
-     * @param destroyOperators Array of destroy operator names (e.g., ["Sequential", "Concentric", "SISR", ...])
-     * @param repairOperators Array of repair operator names (e.g., ["Distance", "Regret2", "Regret3", ...])
-     * @param random Random number generator (shared with main algorithm)
-     * @param config Configuration containing AOS parameters
+     * @param destroyOperators Array of destroy operator names (e.g., ["Sequential",
+     *                         "Concentric", "SISR", ...])
+     * @param repairOperators  Array of repair operator names (e.g., ["Distance",
+     *                         "Regret2", "Regret3", ...])
+     * @param random           Random number generator (shared with main algorithm)
+     * @param config           Configuration containing AOS parameters
      */
     public DecoupledAOS(
             String[] destroyOperators,
@@ -102,11 +107,12 @@ public class DecoupledAOS {
      *
      * DECOUPLED SCORING:
      * ------------------
-     * Both destroy and repair operators receive the SAME reward for the SAME outcome.
+     * Both destroy and repair operators receive the SAME reward for the SAME
+     * outcome.
      * This is the key difference from coupled approaches.
      *
      * Example:
-     * - Sequential (destroy) + Regret2 (repair) → New best solution (33 points)
+     * - Sequential (destroy) + Regret2 (repair) -> New best solution (33 points)
      * - Sequential gets +33 points
      * - Regret2 gets +33 points
      * - Both are rewarded equally for the good outcome
@@ -119,12 +125,12 @@ public class DecoupledAOS {
      * regardless of what they're paired with.
      *
      * @param destroyOperator Name of destroy operator used
-     * @param repairOperator Name of repair operator used
-     * @param outcomeType Outcome type:
-     *                    1 = New global best
-     *                    2 = Improved solution
-     *                    3 = Accepted solution
-     *                    0 = Rejected solution
+     * @param repairOperator  Name of repair operator used
+     * @param outcomeType     Outcome type:
+     *                        1 = New global best
+     *                        2 = Improved solution
+     *                        3 = Accepted solution
+     *                        0 = Rejected solution
      */
     public void recordOutcome(String destroyOperator, String repairOperator, int outcomeType) {
         if (useDecoupled) {

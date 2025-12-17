@@ -137,6 +137,15 @@ public abstract class Perturbation
 	}
 
 	/**
+	 * Get the currently selected insertion heuristic
+	 *
+	 * @return Currently selected insertion heuristic
+	 */
+	public InsertionHeuristic getSelectedInsertionHeuristic() {
+		return selectedInsertionHeuristic;
+	}
+
+	/**
 	 * Record removed candidates for history tracking.
 	 * This method is called after customers are reinserted to track removal patterns.
 	 *
