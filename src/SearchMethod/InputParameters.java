@@ -278,6 +278,10 @@ public class InputParameters
 		parameterSources.put("eliteSetBeta", "default");
 		parameterSources.put("eliteSetMinDiversity", "default");
 		parameterSources.put("warmStart", "default");
+		parameterSources.put("pr.enabled", "default");
+		parameterSources.put("pr.startIterationDelay", "default");
+		parameterSources.put("pr.frequency", "default");
+		parameterSources.put("pr.minEliteSizeForPR", "default");
 	}
 
 	/**
@@ -461,6 +465,24 @@ public class InputParameters
 				// Warm start parameter
 				case "warmStart":
 					config.setWarmStartEnabled(Boolean.parseBoolean(value));
+					parameterSources.put(key, source);
+					break;
+
+				// Path Relinking parameters
+				case "pr.enabled":
+					config.getPrConfig().setEnabled(Boolean.parseBoolean(value));
+					parameterSources.put(key, source);
+					break;
+				case "pr.startIterationDelay":
+					config.getPrConfig().setStartIterationDelay(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "pr.frequency":
+					config.getPrConfig().setPrFrequency(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "pr.minEliteSizeForPR":
+					config.getPrConfig().setMinEliteSizeForPR(Integer.parseInt(value));
 					parameterSources.put(key, source);
 					break;
 

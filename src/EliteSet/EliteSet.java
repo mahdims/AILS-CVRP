@@ -96,16 +96,17 @@ public class EliteSet {
      *
      * @param candidate  The solution to insert
      * @param candidateF Objective value of the candidate
+     * @param source     Which algorithm generated this solution (AILS, PR, or INITIAL)
      * @return true if solution was inserted, false otherwise
      */
-    public boolean tryInsert(Solution candidate, double candidateF) {
+    public boolean tryInsert(Solution candidate, double candidateF, SolutionSource source) {
         lock.writeLock().lock();
         try {
             currentIteration++;
 
             // First solution: always insert
             if (elites.isEmpty()) {
-                insertSolution(candidate, candidateF, 0);
+                insertSolution(candidate, candidateF, 0, source);
                 return true;
             }
 
@@ -133,7 +134,7 @@ public class EliteSet {
                 // Accept if score is better than worst current (or elite set is empty)
                 // This ensures we maintain quality even while filling the elite set
                 if (elites.isEmpty() || candidateScore >= worstCurrentScore) {
-                    insertSolution(candidate, candidateF, elites.size());
+                    insertSolution(candidate, candidateF, elites.size(), source);
                     return true;
                 }
 
@@ -147,7 +148,7 @@ public class EliteSet {
             // Insert if candidate is better than solution to be ejected
             if (candidateScore > ejectScore) {
                 removeSolution(ejectIndex);
-                insertSolution(candidate, candidateF, elites.size()); // Insert at end after removal
+                insertSolution(candidate, candidateF, elites.size(), source); // Insert at end after removal
                 return true;
             }
 
@@ -245,9 +246,9 @@ public class EliteSet {
     /**
      * Insert a solution at a specific index (efficient O(n) operation)
      */
-    private void insertSolution(Solution candidate, double candidateF, int index) {
+    private void insertSolution(Solution candidate, double candidateF, int index, SolutionSource source) {
         // Create elite solution wrapper with proper deep copy
-        EliteSolution newElite = new EliteSolution(candidate, candidateF, currentIteration, instance, config);
+        EliteSolution newElite = new EliteSolution(candidate, candidateF, currentIteration, source, instance, config);
 
         // Add to list
         if (index >= elites.size()) {
@@ -545,6 +546,60 @@ public class EliteSet {
     }
 
     /**
+     * Get maximum elite set size
+     */
+    public int getMaxSize() {
+        return maxSize;
+    }
+
+    /**
+     * Get best objective value in elite set (thread-safe)
+     */
+    public double getBestF() {
+        lock.readLock().lock();
+        try {
+            return bestF;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get worst objective value in elite set (thread-safe)
+     */
+    public double getWorstF() {
+        lock.readLock().lock();
+        try {
+            return worstF;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Check if a solution with similar objective value already exists in elite set
+     * Used to prevent overwriting source attribution when re-inserting similar solutions
+     *
+     * @param candidate The solution to check
+     * @param candidateF The objective value of the solution
+     * @return true if a solution with similar objective value exists, false otherwise
+     */
+    public boolean containsSolution(Solution candidate, double candidateF) {
+        lock.readLock().lock();
+        try {
+            for (EliteSolution elite : elites) {
+                // Check if same objective value (within epsilon)
+                if (Math.abs(elite.objectiveValue - candidateF) < 0.01) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
      * Get distance between two solutions in the elite set (thread-safe)
      */
     public double getDistance(int i, int j) {
@@ -616,8 +671,24 @@ public class EliteSet {
             System.out.println("\nSolutions:");
             for (int i = 0; i < elites.size(); i++) {
                 EliteSolution e = elites.get(i);
-                System.out.printf("  [%d] F=%.2f, AvgDist=%.4f, Score=%.4f, Iter=%d\n",
-                        i, e.objectiveValue, e.avgDistanceToSet, e.combinedScore, e.insertionIteration);
+                System.out.printf("  [%d] F=%.2f, AvgDist=%.4f, Score=%.4f, Iter=%d, Source=%s\n",
+                        i, e.objectiveValue, e.avgDistanceToSet, e.combinedScore, e.insertionIteration, e.source.getLabel());
+            }
+
+            // Count solutions by source
+            int ailsCount = 0, prCount = 0, initialCount = 0;
+            for (EliteSolution e : elites) {
+                switch (e.source) {
+                    case AILS: ailsCount++; break;
+                    case PATH_RELINKING: prCount++; break;
+                    case INITIAL: initialCount++; break;
+                }
+            }
+            System.out.println("\nSolution Sources:");
+            System.out.printf("  AILS: %d (%.1f%%)\n", ailsCount, 100.0 * ailsCount / elites.size());
+            System.out.printf("  Path Relinking: %d (%.1f%%)\n", prCount, 100.0 * prCount / elites.size());
+            if (initialCount > 0) {
+                System.out.printf("  Initial: %d (%.1f%%)\n", initialCount, 100.0 * initialCount / elites.size());
             }
             System.out.println("====================================");
         } finally {

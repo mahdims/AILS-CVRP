@@ -124,6 +124,10 @@ public class Config implements Cloneable {
 				+ "\neliteSetSize: " + eliteSetSize
 				+ "\neliteSetBeta: " + deci.format(eliteSetBeta)
 				+ "\neliteSetMinDiversity: " + deci.format(eliteSetMinDiversity)
+				+ "\npr.enabled: " + prConfig.isEnabled()
+				+ "\npr.startIterationDelay: " + prConfig.getStartIterationDelay()
+				+ "\npr.frequency: " + prConfig.getPrFrequency()
+				+ "\npr.minEliteSizeForPR: " + prConfig.getMinEliteSizeForPR()
 				+ "\nwarmStartEnabled: " + warmStartEnabled;
 	}
 
@@ -172,6 +176,14 @@ public class Config implements Cloneable {
 				+ sources.getOrDefault("aos.scoreAccepted", "default") + ")"
 				+ "\naos.scoreRejected: " + deci.format(aosScoreRejected) + " ("
 				+ sources.getOrDefault("aos.scoreRejected", "default") + ")"
+				+ "\npr.enabled: " + prConfig.isEnabled() + " ("
+				+ sources.getOrDefault("pr.enabled", "default") + ")"
+				+ "\npr.startIterationDelay: " + prConfig.getStartIterationDelay() + " ("
+				+ sources.getOrDefault("pr.startIterationDelay", "default") + ")"
+				+ "\npr.frequency: " + prConfig.getPrFrequency() + " ("
+				+ sources.getOrDefault("pr.frequency", "default") + ")"
+				+ "\npr.minEliteSizeForPR: " + prConfig.getMinEliteSizeForPR() + " ("
+				+ sources.getOrDefault("pr.minEliteSizeForPR", "default") + ")"
 				+ "\nwarmStartEnabled: " + warmStartEnabled + " ("
 				+ sources.getOrDefault("warmStart", "default") + ")";
 	}

@@ -12,6 +12,8 @@ import DiversityControl.OmegaAdjustment;
 import DiversityControl.AcceptanceCriterion;
 import DiversityControl.IdealDist;
 import EliteSet.EliteSet;
+import EliteSet.EliteSolution;
+import EliteSet.SolutionSource;
 import Improvement.LocalSearch;
 import Improvement.IntraLocalSearch;
 import Improvement.FeasibilityPhase;
@@ -447,11 +449,16 @@ public class AILSII {
 
 				// Try to insert accepted solution into elite set for diversity
 				// This helps build a diverse elite set beyond just global best solutions
-				eliteSet.tryInsert(solution, solution.f);
+				// Only insert if not already in elite set (preserve existing attribution from
+				// PR)
+				if (!eliteSet.containsSolution(solution, solution.f)) {
+					eliteSet.tryInsert(solution, solution.f, SolutionSource.AILS);
+				}
 			}
 
 			// Provide feedback to Decoupled AOS based on outcome
-			// Note: PR injections are handled at loop start, so we always record outcomes here
+			// Note: PR injections are handled at loop start, so we always record outcomes
+			// here
 			if (daos != null) {
 				int outcomeType;
 				double bestFBeforeIteration = lastSolutionF; // F before this operator was applied
@@ -472,11 +479,6 @@ public class AILSII {
 
 				// Record outcome for BOTH destroy and repair operators (decoupled)
 				daos.recordOutcome(perturbName, repairName, outcomeType);
-
-				// Log operator probabilities at segment boundaries
-				if (iterator % 2000 == 0) {
-					daos.printStats(iterator);
-				}
 			}
 
 			// Update lastSolutionF for next iteration
@@ -517,13 +519,64 @@ public class AILSII {
 		printPerturbationUsageSummary();
 	}
 
-	public void printPerturbationUsageSummary() {
-		StringBuilder summary = new StringBuilder("\nPerturbation usage: ");
-		for (String name : perturbationUsageCount.keySet()) {
-			summary.append(name).append("=").append(perturbationUsageCount.get(name)).append(" ");
+	/**
+	 * Print Elite Set summary statistics
+	 */
+	private void printEliteSetSummary() {
+		System.out.println("\n==================================================");
+		System.out.println("    Elite Set Summary                            ");
+		System.out.println("==================================================");
+
+		// Get elite set statistics
+		int eliteSize = eliteSet.size();
+		double eliteBestF = eliteSet.getBestF();
+		double eliteWorstF = eliteSet.getWorstF();
+
+		// Count solutions by source
+		int ailsCount = 0, prCount = 0, initialCount = 0;
+		java.util.List<EliteSolution> elites = eliteSet.getAllEliteSolutionsThreadSafe();
+		for (EliteSolution e : elites) {
+			switch (e.source) {
+				case AILS:
+					ailsCount++;
+					break;
+				case PATH_RELINKING:
+					prCount++;
+					break;
+				case INITIAL:
+					initialCount++;
+					break;
+			}
 		}
-		summary.append("(total=").append(iterator).append(" iterations)");
-		System.out.println(summary.toString());
+
+		// Calculate average diversity
+		double avgDiversity = 0.0;
+		if (!elites.isEmpty()) {
+			for (EliteSolution e : elites) {
+				avgDiversity += e.avgDistanceToSet;
+			}
+			avgDiversity /= elites.size();
+		}
+
+		System.out.printf("Size:                    %d/%d%n", eliteSize, eliteSet.getMaxSize());
+		System.out.printf("Best Objective:          %.2f%n", eliteBestF);
+		System.out.printf("Worst Objective:         %.2f%n", eliteWorstF);
+		System.out.printf("Avg Diversity:           %.4f%n", avgDiversity);
+		System.out.println("\nSolution Sources:");
+		System.out.printf("  AILS:                  %3d  (%5.1f%%)%n", ailsCount,
+				100.0 * ailsCount / Math.max(1, eliteSize));
+		System.out.printf("  Path Relinking:        %3d  (%5.1f%%)%n", prCount,
+				100.0 * prCount / Math.max(1, eliteSize));
+		if (initialCount > 0) {
+			System.out.printf("  Initial:               %3d  (%5.1f%%)%n", initialCount,
+					100.0 * initialCount / Math.max(1, eliteSize));
+		}
+		System.out.println("==================================================");
+	}
+
+	public void printPerturbationUsageSummary() {
+		// Print Elite Set Summary
+		printEliteSetSummary();
 
 		// Print detailed success rate analysis for DESTROY operators
 		System.out.println("\n==================================================");
@@ -553,7 +606,8 @@ public class AILSII {
 				"TOTAL", totalUses, totalImprovements, overallRate);
 		System.out.println("==================================================\n");
 
-		// Print detailed success rate analysis for INSERTION HEURISTICS (repair operators)
+		// Print detailed success rate analysis for INSERTION HEURISTICS (repair
+		// operators)
 		if (!insertionUsageCount.isEmpty()) {
 			System.out.println("==================================================");
 			System.out.println("    Insertion Heuristic Effectiveness            ");
@@ -608,7 +662,12 @@ public class AILSII {
 			lastHeartbeatTime = System.currentTimeMillis();
 
 			// Try to insert into elite set (pass bestSolution which is already cloned)
-			boolean inserted = eliteSet.tryInsert(bestSolution, bestSolution.f);
+			// Only insert if not already in elite set (preserve existing attribution from
+			// PR)
+			boolean inserted = false;
+			if (!eliteSet.containsSolution(bestSolution, bestSolution.f)) {
+				inserted = eliteSet.tryInsert(bestSolution, bestSolution.f, SolutionSource.AILS);
+			}
 
 			if (print) {
 				System.out.println("[AILS] time:" + deci.format(timeAF) + "s"

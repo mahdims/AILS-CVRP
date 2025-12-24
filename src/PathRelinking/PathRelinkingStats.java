@@ -37,7 +37,7 @@ public class PathRelinkingStats {
      * Record a PR iteration
      *
      * @param inserted Whether solution was inserted into elite set
-     * @param f Objective value of solution
+     * @param f        Objective value of solution
      */
     public void recordIteration(boolean inserted, double f) {
         totalIterations++;
@@ -69,27 +69,26 @@ public class PathRelinkingStats {
     /**
      * Print periodic statistics (single line)
      *
-     * @param iteration Current iteration number
+     * @param iteration   Current iteration number
      * @param globalBestF Global best objective value (from AILS or PR)
      */
     public void printStats(int iteration, double globalBestF) {
         double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
         double insertionRate = totalIterations > 0
-            ? 100.0 * successfulInsertions / totalIterations
-            : 0.0;
+                ? 100.0 * successfulInsertions / totalIterations
+                : 0.0;
 
         System.out.printf(
-            "[PR] time:%.1fs iter:%d | insertions:%d/%d(%.1f%%) bestF:%.2f " +
-            "paired:%d moves:%d\n",
-            elapsed,
-            iteration,
-            successfulInsertions,
-            totalIterations,
-            insertionRate,
-            globalBestF,  // Use global best instead of local bestFFound
-            totalSolutionsPaired,
-            totalMovesPerformed
-        );
+                "[PR] time:%.1fs iter:%d | insertions:%d/%d(%.1f%%) bestF:%.2f " +
+                        "paired:%d moves:%d\n",
+                elapsed,
+                iteration,
+                successfulInsertions,
+                totalIterations,
+                insertionRate,
+                globalBestF, // Use global best instead of local bestFFound
+                totalSolutionsPaired,
+                totalMovesPerformed);
     }
 
     /**
@@ -98,11 +97,11 @@ public class PathRelinkingStats {
     public void printFinalStats() {
         double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
         double insertionRate = totalIterations > 0
-            ? 100.0 * successfulInsertions / totalIterations
-            : 0.0;
+                ? 100.0 * successfulInsertions / totalIterations
+                : 0.0;
         double avgMovesPerIteration = totalIterations > 0
-            ? (double) totalMovesPerformed / totalIterations
-            : 0.0;
+                ? (double) totalMovesPerformed / totalIterations
+                : 0.0;
 
         System.out.println("\n==================================================");
         System.out.println("    Path Relinking Final Statistics              ");
@@ -125,11 +124,11 @@ public class PathRelinkingStats {
     public void printCompactSummary() {
         double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
         System.out.printf("[PR] %d iterations, %d insertions (%.1f%%), best=%.2f, time=%.1fs\n",
-            totalIterations,
-            successfulInsertions,
-            totalIterations > 0 ? 100.0 * successfulInsertions / totalIterations : 0.0,
-            bestFFound,
-            elapsed);
+                totalIterations,
+                successfulInsertions,
+                totalIterations > 0 ? 100.0 * successfulInsertions / totalIterations : 0.0,
+                bestFFound,
+                elapsed);
     }
 
     // Getters
@@ -147,8 +146,8 @@ public class PathRelinkingStats {
 
     public double getInsertionRate() {
         return totalIterations > 0
-            ? 100.0 * successfulInsertions / totalIterations
-            : 0.0;
+                ? 100.0 * successfulInsertions / totalIterations
+                : 0.0;
     }
 
     public List<Double> getImprovementHistory() {

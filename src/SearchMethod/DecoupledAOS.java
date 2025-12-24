@@ -149,11 +149,11 @@ public class DecoupledAOS {
      * @param iteration Current iteration number
      */
     public void printStats(int iteration) {
-        System.out.println("[Decoupled AOS] Iteration " + iteration);
-        System.out.print("  Destroy: ");
-        destroyAOS.printStats(iteration);
-        System.out.print("  Repair:  ");
-        repairAOS.printStats(iteration);
+        // System.out.println("[Decoupled AOS] Iteration " + iteration);
+        // System.out.print(" Destroy: ");
+        // destroyAOS.printStats(iteration);
+        // System.out.print(" Repair: ");
+        // repairAOS.printStats(iteration);
     }
 
     /**

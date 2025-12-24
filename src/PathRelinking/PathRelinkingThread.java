@@ -3,6 +3,7 @@ package PathRelinking;
 import Data.Instance;
 import EliteSet.EliteSet;
 import EliteSet.EliteSolution;
+import EliteSet.SolutionSource;
 import Improvement.IntraLocalSearch;
 import SearchMethod.Config;
 import SearchMethod.AILSII;
@@ -137,7 +138,7 @@ public class PathRelinkingThread implements Runnable {
                         ails.notifyPRBetterSolution(result, result.f);
                     }
 
-                    boolean inserted = eliteSet.tryInsert(result, result.f);
+                    boolean inserted = eliteSet.tryInsert(result, result.f, SolutionSource.PATH_RELINKING);
 
                     stats.recordIteration(inserted, result.f);
 
@@ -176,7 +177,7 @@ public class PathRelinkingThread implements Runnable {
                 }
 
                 // Periodic statistics (every 500 iterations)
-                if (prIterations % 500 == 0) {
+                if (prIterations % 5000 == 0) {
                     // Pass global best from AILS (thread-safe via volatile/synchronized)
                     stats.printStats(prIterations, ails.getBestF());
                 }

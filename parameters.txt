@@ -43,11 +43,11 @@ perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval,SISR
 #
 # Recommended for balanced performance: Distance,Regret2,Regret3
 # For more exploration: Distance,Regret2,Regret3,RegretRandom
-insertionHeuristics=Distance,Cost,Regret2,Regret3,RegretRandom
+insertionHeuristics=Distance,Cost,Regret2
 
 # Acceptance threshold range
 etaMin=0.01
-etaMax=0.5
+etaMax=1.0
 
 # Solution comparison precision
 epsilon=0.01
@@ -74,7 +74,7 @@ sisr.blinkRate=0.01
 fleetMinimizationRate=0.00
 
 # Maximum iterations for fleet minimization phase
-fleetMinimizationMaxIter=200
+fleetMinimizationMaxIter=0
 
 # ============================================================
 # Elite Set Parameters
@@ -103,13 +103,13 @@ aos.enabled=true
 # When true: destroy and repair operators are selected and scored independently
 # When false: only destroy operators are tracked (legacy mode)
 # Decoupled selection learns faster and generalizes better
-aos.decoupled=true
+aos.decoupled=false
 
 # Segment length (iterations before probability update)
 # Based on Ropke & Pisinger 2006 but adapted for faster VRP dynamics
 # Original: 100 iterations, Recommended for AILS: 20-30 iterations
 # Shorter = faster adaptation, Longer = more stability
-aos.segmentLength=100
+aos.segmentLength=60
 
 # Reaction factor (0.0-1.0) - weight given to new evidence
 # Higher values = faster learning but more volatile
@@ -127,3 +127,26 @@ aos.scoreGlobalBest=30.0
 aos.scoreImproved=15.0
 aos.scoreAccepted=2.0
 aos.scoreRejected=0.0
+
+# ============================================================
+# Path Relinking (PR) Parameters
+# ============================================================
+
+# Enable/disable Path Relinking parallel thread
+# Path Relinking intensifies search by exploring trajectories between elite solutions
+pr.enabled=true
+
+# Delay before starting PR thread (number of AILS iterations)
+# Allows elite set to populate with diverse solutions first
+# Recommended: 50-200 iterations
+pr.startIterationDelay=100
+
+# How often PR runs (every N AILS iterations)
+# Lower = more frequent PR, higher = less frequent
+# Recommended: 20-100 iterations
+pr.frequency=20
+
+# Minimum elite set size before PR can start
+# Ensures sufficient solution diversity for meaningful path relinking
+# Recommended: 2-3 solutions
+pr.minEliteSizeForPR=3

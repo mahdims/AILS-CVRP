@@ -30,21 +30,26 @@ public class EliteSolution {
     /** Combined score: (1-beta)*quality_score + beta*diversity_score (cached) */
     public double combinedScore;
 
+    /** Which algorithm generated this solution (AILS, PR, or INITIAL) */
+    public SolutionSource source;
+
     /**
      * Constructor
      *
      * @param sol The solution to wrap (will be deep copied)
      * @param objValue Objective value of the solution
      * @param iteration Current iteration when solution is added
+     * @param source Which algorithm generated this solution
      * @param instance Problem instance (needed to create Solution)
      * @param config Algorithm configuration (needed to create Solution)
      */
-    public EliteSolution(Solution sol, double objValue, int iteration, Instance instance, Config config) {
+    public EliteSolution(Solution sol, double objValue, int iteration, SolutionSource source, Instance instance, Config config) {
         // Create a NEW solution and clone into it (proper deep copy)
         this.solution = new Solution(instance, config);
         this.solution.clone(sol);
         this.objectiveValue = objValue;
         this.insertionIteration = iteration;
+        this.source = source;
         this.avgDistanceToSet = 0.0;
         this.combinedScore = 0.0;
     }
@@ -65,8 +70,8 @@ public class EliteSolution {
      */
     @Override
     public String toString() {
-        return String.format("EliteSolution[f=%.2f, avgDist=%.4f, score=%.4f, iter=%d]",
-                objectiveValue, avgDistanceToSet, combinedScore, insertionIteration);
+        return String.format("EliteSolution[f=%.2f, avgDist=%.4f, score=%.4f, iter=%d, source=%s]",
+                objectiveValue, avgDistanceToSet, combinedScore, insertionIteration, source.getLabel());
     }
 
     /**
