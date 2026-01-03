@@ -71,17 +71,17 @@ sisr.blinkRate=0.01
 
 # Rate at which fleet minimization is applied probabilistically (0.005 = 0.5% probability)
 # Applied only in first 25% of run
-fleetMinimizationRate=0.00
+fleetMinimizationRate=0.001
 
 # Maximum iterations for fleet minimization phase
-fleetMinimizationMaxIter=0
+fleetMinimizationMaxIter=200
 
 # ============================================================
 # Elite Set Parameters
 # ============================================================
 
 # Maximum number of solutions in elite set
-eliteSetSize=10
+eliteSetSize=12
 
 # Diversity weight in combined score (0 = only quality, 1 = only diversity)
 # Recommended: 0.2-0.4 for balanced quality-diversity tradeoff
@@ -150,3 +150,50 @@ pr.frequency=20
 # Ensures sufficient solution diversity for meaningful path relinking
 # Recommended: 2-3 solutions
 pr.minEliteSizeForPR=3
+
+# ============================================================
+# Multi-Start AILS Parameters
+# ============================================================
+
+# Enable multi-start AILS (parallel worker threads + protected main thread)
+# When enabled: 1 main thread (protected) + N worker threads + 1 PR thread
+# When disabled: Standard single-thread AILS + PR
+# Main thread never restarts, workers restart when stagnant
+multiStart.enabled=true
+
+# Number of worker AILS threads (excluding main thread)
+# Total AILS threads = 1 (main) + numWorkerThreads (workers)
+# Recommended configurations:
+#   Conservative (laptop, 4 cores): 2 workers (1 main + 2 workers + 1 PR = 4 threads)
+#   Moderate (dev machine, 8 cores): 6 workers (1 main + 6 workers + 1 PR = 8 threads)
+#   Workstation (16-32 cores): 14-30 workers
+#   Aggressive (2x Intel 6972P, 96 cores): 48-94 workers for maximum parallelism
+# Note: Leave some cores for PR thread and operating system
+multiStart.numWorkerThreads=2
+
+# Minimum elite set size before launching worker threads
+# Workers need diverse high-quality seeds to start from
+# Recommended: At least numWorkerThreads (ensures each worker gets unique seed)
+multiStart.minEliteSizeForWorkers=6
+
+# Stagnation detection threshold (iterations without elite insertion)
+# Worker is considered stagnant if BOTH criteria are met:
+#   1. No insertion to elite set for this many iterations
+#   2. Worker's best solution is >competitiveThreshold% worse than global best
+# If worker is competitive with global best, it keeps running (intensifying)
+# Recommended: 500-1000 iterations for aggressive restart
+multiStart.stagnationThreshold=1000
+
+# Competitive threshold (percentage gap from global best)
+# Worker is competitive if within this % of global best
+# Competitive workers are NOT restarted (even without recent insertions)
+# CRITICAL: Set this very tight (0.001% = 0.00001) so workers restart frequently
+# This ensures continuous fresh exploration rather than wasting compute
+multiStart.competitiveThreshold=0.0001
+
+# Notify main thread when workers find better solutions
+# If enabled, main thread adopts worker discoveries as reference solutions
+# Improves collaboration: workers can guide main thread to promising regions
+# CRITICAL: Enable this to prevent best solutions from being lost
+# When disabled, worker discoveries don't propagate to main thread
+multiStart.notifyMainThread=true

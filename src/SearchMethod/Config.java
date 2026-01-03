@@ -49,6 +49,9 @@ public class Config implements Cloneable {
 	// --------------------Warm Start-------------------
 	boolean warmStartEnabled;
 
+	// --------------------Multi-Start-------------------
+	MultiStartConfig msConfig;
+
 	public Config() {
 		// ----------------------------Main----------------------------
 		this.stoppingCriterionType = StoppingCriterionType.Time;
@@ -93,6 +96,8 @@ public class Config implements Cloneable {
 		this.prConfig = PathRelinkingConfig.aggressive();
 
 		this.warmStartEnabled = false;
+
+		this.msConfig = new MultiStartConfig();
 	}
 
 	public Config clone() {
@@ -421,6 +426,14 @@ public class Config implements Cloneable {
 
 	public void setWarmStartEnabled(boolean warmStartEnabled) {
 		this.warmStartEnabled = warmStartEnabled;
+	}
+
+	public MultiStartConfig getMsConfig() {
+		return msConfig;
+	}
+
+	public void setMsConfig(MultiStartConfig msConfig) {
+		this.msConfig = msConfig;
 	}
 
 }

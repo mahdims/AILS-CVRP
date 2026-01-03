@@ -22,14 +22,24 @@ public class InputParameters
 	private String solutionDir="";
 	private Config config =new Config();
 	private HashMap<String, String> parameterSources = new HashMap<>();
-	
+	private String parameterFile = "parameters.txt";  // Default parameter file
+
 	public void readingInput(String[] args)
 	{
 		// Initialize parameter sources with defaults
 		initializeParameterSources();
 
-		// Step 1: Read parameters.txt file (if exists)
-		readParametersFile("parameters.txt");
+		// Step 0: Check for custom parameter file in arguments (must be processed first)
+		for (int i = 0; i < args.length-1; i+=2) {
+			if (args[i].equals("-params")) {
+				parameterFile = args[i+1];
+				break;
+			}
+		}
+
+		// Step 1: Read parameter file (either default or custom)
+		System.out.println("Loading parameters from: " + parameterFile);
+		readParametersFile(parameterFile);
 
 		// Step 2: Parse command-line arguments (overrides file and defaults)
 		try
@@ -282,6 +292,12 @@ public class InputParameters
 		parameterSources.put("pr.startIterationDelay", "default");
 		parameterSources.put("pr.frequency", "default");
 		parameterSources.put("pr.minEliteSizeForPR", "default");
+		parameterSources.put("multiStart.enabled", "default");
+		parameterSources.put("multiStart.numWorkerThreads", "default");
+		parameterSources.put("multiStart.minEliteSizeForWorkers", "default");
+		parameterSources.put("multiStart.stagnationThreshold", "default");
+		parameterSources.put("multiStart.competitiveThreshold", "default");
+		parameterSources.put("multiStart.notifyMainThread", "default");
 	}
 
 	/**
@@ -483,6 +499,32 @@ public class InputParameters
 					break;
 				case "pr.minEliteSizeForPR":
 					config.getPrConfig().setMinEliteSizeForPR(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+
+				// Multi-Start parameters
+				case "multiStart.enabled":
+					config.getMsConfig().setEnabled(Boolean.parseBoolean(value));
+					parameterSources.put(key, source);
+					break;
+				case "multiStart.numWorkerThreads":
+					config.getMsConfig().setNumWorkerThreads(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "multiStart.minEliteSizeForWorkers":
+					config.getMsConfig().setMinEliteSizeForWorkers(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "multiStart.stagnationThreshold":
+					config.getMsConfig().setStagnationThreshold(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "multiStart.competitiveThreshold":
+					config.getMsConfig().setCompetitiveThreshold(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+				case "multiStart.notifyMainThread":
+					config.getMsConfig().setNotifyMainThread(Boolean.parseBoolean(value));
 					parameterSources.put(key, source);
 					break;
 

@@ -25,7 +25,7 @@ import Solution.Solution;
 import Solution.Node;
 import PathRelinking.PathRelinkingThread;
 
-public class AILSII {
+public class AILSII implements Runnable {
 	// ----------Problema------------
 	Solution solution, referenceSolution, bestSolution;
 
@@ -44,7 +44,7 @@ public class AILSII {
 	double timeAF, totalTime, time;
 	long lastHeartbeatTime; // Track time of last heartbeat log (for 10-min intervals)
 
-	Random rand = new Random();
+	Random rand; // Initialized in constructor with thread-specific seed
 
 	HashMap<String, OmegaAdjustment> omegaSetup = new HashMap<String, OmegaAdjustment>();
 	HashMap<String, Integer> perturbationUsageCount = new HashMap<String, Integer>();
@@ -86,6 +86,11 @@ public class AILSII {
 
 	// PR->AILS communication: volatile flag for thread-safe signaling
 	private volatile boolean prFoundBetter = false;
+
+	// Multi-Start AILS support
+	private ThreadMonitor threadMonitor;
+	private int threadId;
+	private volatile boolean shouldTerminate;
 	// Temporary storage for PR solution (to avoid race condition)
 	private Solution prPendingSolution;
 	private double prPendingF;
@@ -106,6 +111,9 @@ public class AILSII {
 	StoppingCriterionType stoppingCriterionType;
 
 	public AILSII(Instance instance, InputParameters reader) {
+		// Initialize random number generator (single-thread mode)
+		this.rand = new Random();
+
 		this.instance = instance;
 		Config config = reader.getConfig();
 		this.optimal = reader.getBest();
@@ -229,6 +237,150 @@ public class AILSII {
 	}
 
 	/**
+	 * Constructor for multi-start AILS (worker threads)
+	 *
+	 * @param instance        Problem instance
+	 * @param config          Configuration
+	 * @param sharedEliteSet  Shared elite set (thread-safe)
+	 * @param initialSolution Solution to start from (for workers)
+	 * @param threadId        Thread identifier (1=main, 2+=workers)
+	 * @param threadMonitor   Thread monitor for coordination
+	 * @param optimalValue    Known optimal value (for gap calculation)
+	 */
+	public AILSII(Instance instance, Config config, EliteSet sharedEliteSet,
+			Solution initialSolution, int threadId, ThreadMonitor threadMonitor,
+			double optimalValue, double timeLimit, long globalStartTime, double globalTimeLimit) {
+		// Initialize random number generator with thread-specific seed for
+		// diversification
+		// Using threadId ensures each thread explores different random trajectories
+		this.rand = new Random(System.currentTimeMillis() + threadId * 1000L);
+
+		// Call existing constructor logic for base initialization
+		this.instance = instance;
+		this.optimal = optimalValue;
+		this.executionMaximumLimit = timeLimit; // Each thread gets specific time limit for adaptive parameters
+
+		this.epsilon = config.getEpsilon();
+		this.stoppingCriterionType = config.getStoppingCriterionType();
+		this.idealDist = new IdealDist();
+		this.solution = new Solution(instance, config);
+		this.referenceSolution = new Solution(instance, config);
+		this.bestSolution = new Solution(instance, config);
+		this.numIterUpdate = config.getGamma();
+
+		this.pairwiseDistance = new Distance();
+		this.pertubOperators = new Perturbation[config.getPerturbation().length];
+		this.distAdjustment = new DistAdjustment(idealDist, config, executionMaximumLimit);
+		this.intraLocalSearch = new IntraLocalSearch(instance, config);
+		this.localSearch = new LocalSearch(instance, config, intraLocalSearch);
+		this.feasibilityOperator = new FeasibilityPhase(instance, config, intraLocalSearch);
+		this.constructSolution = new ConstructSolution(instance, config);
+
+		OmegaAdjustment newOmegaAdjustment;
+		for (int i = 0; i < config.getPerturbation().length; i++) {
+			newOmegaAdjustment = new OmegaAdjustment(config.getPerturbation()[i], config, instance.getSize(),
+					idealDist);
+			omegaSetup.put(config.getPerturbation()[i] + "", newOmegaAdjustment);
+			perturbationUsageCount.put(config.getPerturbation()[i] + "", 0);
+			operatorSuccessCount.put(config.getPerturbation()[i] + "", 0);
+		}
+
+		for (int i = 0; i < config.getInsertionHeuristics().length; i++) {
+			String insertionName = config.getInsertionHeuristics()[i] + "";
+			insertionUsageCount.put(insertionName, 0);
+			insertionSuccessCount.put(insertionName, 0);
+		}
+
+		this.acceptanceCriterion = new AcceptanceCriterion(instance, config, executionMaximumLimit);
+		this.sisrForFleetMin = new SISR(instance, config, omegaSetup, intraLocalSearch, this);
+		this.customerRemovalCounts = new int[instance.getSize() + 1];
+		this.prPendingSolution = new Solution(instance, config);
+		this.prPendingF = Double.MAX_VALUE;
+
+		// Time-aligned eta initialization for workers
+		// Workers starting later should begin with lower eta (more intensification)
+		// to avoid destroying good elite starting solutions with aggressive exploration
+		if (threadMonitor != null && threadId > 1) { // Workers only, not main thread
+			double globalElapsed = (System.currentTimeMillis() - globalStartTime) / 1000.0;
+			double globalProgress = Math.min(globalElapsed / globalTimeLimit, 0.99);
+
+			// Calculate eta that aligns with global search phase
+			// Early workers (progress ~0): eta ~etaMax (explore)
+			// Late workers (progress ~1): eta ~etaMin (intensify)
+			double alignedEta = config.getEtaMax() * Math.pow(
+					config.getEtaMin() / config.getEtaMax(),
+					globalProgress);
+
+			this.acceptanceCriterion.setEta(alignedEta);
+
+			System.out.printf("[Thread-%d] Time-aligned eta initialization: %.4f (global progress: %.1f%%)%n",
+					threadId, alignedEta, globalProgress * 100);
+		}
+
+		// Initialize perturbation operators
+		try {
+			for (int i = 0; i < pertubOperators.length; i++) {
+				String operatorName = config.getPerturbation()[i] + "";
+				if (operatorName.equals("CriticalRemoval")) {
+					this.pertubOperators[i] = new CriticalRemoval(
+							instance, config, omegaSetup, intraLocalSearch, this);
+				} else {
+					this.pertubOperators[i] = (Perturbation) Class.forName("Perturbation." + operatorName)
+							.getConstructor(Instance.class, Config.class, HashMap.class,
+									IntraLocalSearch.class, SearchMethod.AILSII.class)
+							.newInstance(instance, config, omegaSetup, intraLocalSearch, this);
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		// Initialize AOS
+		if (config.isAosEnabled()) {
+			String[] destroyOperatorNames = new String[config.getPerturbation().length];
+			for (int i = 0; i < config.getPerturbation().length; i++) {
+				destroyOperatorNames[i] = config.getPerturbation()[i].toString();
+			}
+			String[] repairOperatorNames = new String[config.getInsertionHeuristics().length];
+			for (int i = 0; i < config.getInsertionHeuristics().length; i++) {
+				repairOperatorNames[i] = config.getInsertionHeuristics()[i].toString();
+			}
+			this.daos = new DecoupledAOS(destroyOperatorNames, repairOperatorNames, rand, config);
+		}
+
+		// Override elite set with shared one
+		this.eliteSet = sharedEliteSet;
+
+		// Set thread-specific fields
+		this.threadId = threadId;
+		this.threadMonitor = threadMonitor;
+		this.shouldTerminate = false;
+
+		// Register with thread monitor
+		if (threadMonitor != null) {
+			threadMonitor.registerThread(threadId);
+		}
+
+		// Start from provided solution (if worker thread)
+		if (initialSolution != null) {
+			this.bestSolution.clone(initialSolution);
+			this.referenceSolution.clone(initialSolution);
+			this.bestF = initialSolution.f;
+
+			System.out.printf("[Thread-%d] Starting from elite seed: f=%.2f%n",
+					threadId, bestF);
+		}
+	}
+
+	/**
+	 * Runnable interface implementation for multi-threading
+	 */
+	@Override
+	public void run() {
+		search();
+	}
+
+	/**
 	 * Record customer removals for CriticalRemoval tracking.
 	 * Called by perturbation operators (except CriticalRemoval itself) to track
 	 * which customers are frequently being removed during the search.
@@ -327,11 +479,31 @@ public class AILSII {
 			prThreadHandle = new Thread(prThread, "PathRelinkingThread");
 			prThreadHandle.setDaemon(true);
 			prThreadHandle.start();
-			System.out.println("[AILS] Path Relinking thread started");
+			System.out.println(getThreadPrefix() + " Path Relinking thread started");
 		}
 
 		while (!stoppingCriterion()) {
 			iterator++;
+
+			// Multi-start monitoring hooks
+			if (threadMonitor != null) {
+				// Report iteration and update best F
+				threadMonitor.getThreadStats(threadId).recordIteration();
+				threadMonitor.getThreadStats(threadId).updateBestF(bestF);
+
+				// Check for stagnation (workers only, not main thread)
+				if (threadId > 1 && threadMonitor.shouldRestart(threadId)) {
+					System.out.printf("[Thread-%d] Stagnation detected, terminating for restart...%n",
+							threadId);
+					break;
+				}
+			}
+
+			// Check for external termination signal
+			if (shouldTerminate) {
+				System.out.printf("[Thread-%d] External termination signal received%n", threadId);
+				break;
+			}
 
 			// Process pending PR injection (deferred update pattern for thread safety)
 			// This must happen at the start of iteration before we use referenceSolution
@@ -346,9 +518,10 @@ public class AILSII {
 				// Reset heartbeat timer on improvement from PR
 				lastHeartbeatTime = System.currentTimeMillis();
 
-				// Reset omega for all perturbations to ideal distance
+				// Reset omega to 1 for intensification around new PR solution
+				// This will persist for gamma iterations before automatic update
 				for (OmegaAdjustment omegaAdj : omegaSetup.values()) {
-					omegaAdj.setActualOmega(idealDist.idealDist);
+					omegaAdj.resetOmega(1);
 				}
 
 				// Reset AOS scores (segment invalidated by trajectory change)
@@ -452,7 +625,12 @@ public class AILSII {
 				// Only insert if not already in elite set (preserve existing attribution from
 				// PR)
 				if (!eliteSet.containsSolution(solution, solution.f)) {
-					eliteSet.tryInsert(solution, solution.f, SolutionSource.AILS);
+					boolean inserted = eliteSet.tryInsert(solution, solution.f, SolutionSource.AILS);
+
+					// Multi-start: Record elite insertion
+					if (inserted && threadMonitor != null) {
+						threadMonitor.getThreadStats(threadId).recordEliteInsertion();
+					}
 				}
 			}
 
@@ -505,18 +683,24 @@ public class AILSII {
 
 		// Stop Path Relinking thread
 		if (prThread != null) {
-			System.out.println("[AILS] Stopping Path Relinking thread...");
+			System.out.println(getThreadPrefix() + " Stopping Path Relinking thread...");
 			prThread.stop();
 
 			try {
 				prThreadHandle.join(5000); // Wait up to 5 seconds
-				System.out.println("[AILS] Path Relinking thread stopped");
+				System.out.println(getThreadPrefix() + " Path Relinking thread stopped");
 			} catch (InterruptedException e) {
-				System.err.println("[AILS] Path Relinking thread did not terminate cleanly");
+				System.err.println(getThreadPrefix() + " Path Relinking thread did not terminate cleanly");
 			}
 		}
 
-		printPerturbationUsageSummary();
+		// In multi-start mode, print compact one-liner instead of full summary
+		if (threadMonitor != null) {
+			printCompactOperatorStats();
+		} else {
+			// Single-thread mode: print full detailed summary
+			printPerturbationUsageSummary();
+		}
 	}
 
 	/**
@@ -638,6 +822,41 @@ public class AILSII {
 		}
 	}
 
+	/**
+	 * Print compact two-line operator statistics for multi-start mode
+	 */
+	private void printCompactOperatorStats() {
+		// Destroy operators (first line)
+		StringBuilder destroySB = new StringBuilder();
+		destroySB.append(getThreadPrefix()).append(" Destroy: ");
+
+		java.util.List<String> destroyStats = new java.util.ArrayList<>();
+		for (String name : perturbationUsageCount.keySet()) {
+			int uses = perturbationUsageCount.get(name);
+			int improvements = operatorSuccessCount.getOrDefault(name, 0);
+			double rate = uses > 0 ? 100.0 * improvements / uses : 0.0;
+			destroyStats.add(String.format("%s(%d/%d/%.1f%%)", name, uses, improvements, rate));
+		}
+		destroySB.append(String.join(" ", destroyStats));
+		System.out.println(destroySB.toString());
+
+		// Insertion heuristics (second line)
+		if (!insertionUsageCount.isEmpty()) {
+			StringBuilder insertSB = new StringBuilder();
+			insertSB.append(getThreadPrefix()).append(" Repair:  ");
+
+			java.util.List<String> insertStats = new java.util.ArrayList<>();
+			for (String name : insertionUsageCount.keySet()) {
+				int uses = insertionUsageCount.get(name);
+				int improvements = insertionSuccessCount.getOrDefault(name, 0);
+				double rate = uses > 0 ? 100.0 * improvements / uses : 0.0;
+				insertStats.add(String.format("%s(%d/%d/%.1f%%)", name, uses, improvements, rate));
+			}
+			insertSB.append(String.join(" ", insertStats));
+			System.out.println(insertSB.toString());
+		}
+	}
+
 	public void evaluateSolution() {
 		if ((solution.f - bestF) < -epsilon) {
 			bestF = solution.f;
@@ -669,8 +888,18 @@ public class AILSII {
 				inserted = eliteSet.tryInsert(bestSolution, bestSolution.f, SolutionSource.AILS);
 			}
 
+			// Multi-start: Record global best improvement and elite insertion
+			if (threadMonitor != null) {
+				threadMonitor.getThreadStats(threadId).recordGlobalBestImprovement();
+				threadMonitor.updateGlobalBest(bestF);
+
+				if (inserted) {
+					threadMonitor.getThreadStats(threadId).recordEliteInsertion();
+				}
+			}
+
 			if (print) {
-				System.out.println("[AILS] time:" + deci.format(timeAF) + "s"
+				System.out.println(getThreadPrefix() + " time:" + deci.format(timeAF) + "s"
 						+ " iter:" + iterator
 						+ " | f:" + bestF
 						+ " gap:" + deci.format(getGap()) + "%"
@@ -724,10 +953,33 @@ public class AILSII {
 		reader.readingInput(args);
 
 		Instance instance = new Instance(reader);
+		Config config = reader.getConfig();
 
-		AILSII ailsII = new AILSII(instance, reader);
+		Solution bestSolution;
 
-		ailsII.search();
+		// Check if Multi-Start AILS is enabled
+		if (config.getMsConfig().isEnabled()) {
+			// Multi-start mode
+			System.out.println("[Main] Multi-Start AILS enabled with " +
+					config.getMsConfig().getNumWorkerThreads() + " worker threads");
+
+			IntraLocalSearch intraLS = new IntraLocalSearch(instance, config);
+			MultiStartAILS multiStart = new MultiStartAILS(
+					instance,
+					config,
+					intraLS,
+					reader.getTimeLimit(),
+					reader.getBest());
+
+			multiStart.run();
+			bestSolution = multiStart.getBestSolution();
+
+		} else {
+			// Single-thread mode (original behavior)
+			AILSII ailsII = new AILSII(instance, reader);
+			ailsII.search();
+			bestSolution = ailsII.getBestSolution();
+		}
 
 		// Save solution to file if solution directory is specified
 		String solutionDir = reader.getSolutionDir();
@@ -742,7 +994,7 @@ public class AILSII {
 				String solutionFile = solutionDir + java.io.File.separator + instanceName + ".sol";
 
 				// Save the best solution
-				ailsII.getBestSolution().printSolution(solutionFile);
+				bestSolution.printSolution(solutionFile);
 
 				System.out.println("Solution saved to: " + solutionFile);
 			} catch (Exception e) {
@@ -843,6 +1095,35 @@ public class AILSII {
 
 			// Note: Detailed logging moved to main thread where actual update happens
 		}
+	}
+
+	/**
+	 * Notify this AILS thread of a better solution found elsewhere
+	 * (from PR thread or worker thread in multi-start mode)
+	 *
+	 * @param betterSolution The better solution
+	 * @param betterF        Its objective value
+	 */
+	public void notifyBetterSolution(Solution betterSolution, double betterF) {
+		// Delegate to PR notification mechanism (same logic)
+		notifyPRBetterSolution(betterSolution, betterF);
+	}
+
+	/**
+	 * Signal this thread to terminate gracefully (for multi-start worker restarts)
+	 */
+	public void terminate() {
+		this.shouldTerminate = true;
+	}
+
+	/**
+	 * Get thread-specific log prefix (e.g., "[Thread-1]" or "[AILS]")
+	 */
+	private String getThreadPrefix() {
+		if (threadMonitor != null) {
+			return String.format("[Thread-%d]", threadId);
+		}
+		return "[AILS]";
 	}
 
 	/**

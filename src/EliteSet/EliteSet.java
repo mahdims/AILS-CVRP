@@ -110,6 +110,14 @@ public class EliteSet {
                 return true;
             }
 
+            // Check for exact duplicates FIRST (distance = 0 to any existing solution)
+            for (EliteSolution elite : elites) {
+                double distance = diversityMetric.calculateDistance(candidate, elite.solution);
+                if (distance < 1e-9) { // Effectively zero (exact duplicate)
+                    return false; // Reject exact duplicates
+                }
+            }
+
             // Calculate diversity score for candidate
             double candidateDiversity = calculateAverageDistance(candidate);
 

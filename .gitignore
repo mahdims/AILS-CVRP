@@ -7,3 +7,5 @@ Resultados/
 solutions/
 warm_start/
 *.jar
+experiments/
+logs/

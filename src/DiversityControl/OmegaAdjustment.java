@@ -90,4 +90,17 @@ public class OmegaAdjustment
 		this.actualOmega = actualOmega;
 	}
 
+	/**
+	 * Reset omega to a specific value and restart the iteration counter.
+	 * This allows omega to stay at the reset value for gamma iterations
+	 * before the automatic update kicks in.
+	 * idealDist is NOT affected (remains shared across all operators).
+	 *
+	 * @param resetValue The value to reset omega to (typically 1 for intensification)
+	 */
+	public void resetOmega(double resetValue) {
+		this.omega = Math.min(omegaMax, Math.max(resetValue, omegaMin));
+		this.iterator = 0;  // Reset counter so it takes gamma iterations before next update
+	}
+
 }
