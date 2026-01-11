@@ -54,10 +54,15 @@ public class CustomerRegretState {
     /**
      * Update state after recomputation
      *
-     * @param regret    Newly computed regret value
-     * @param positions Top M insertion positions (sorted by cost)
+     * FIX: Junior Dev Bug #3 - Now accepts shared route mark array to avoid allocation churn
+     *
+     * @param regret         Newly computed regret value
+     * @param positions      Top M insertion positions (sorted by cost)
+     * @param routeMarkArray Reusable boolean array for route deduplication
+     * @param maxRoutes      Maximum number of routes (size of mark array)
      */
-    public void update(double regret, List<InsertionPosition> positions) {
+    public void update(double regret, List<InsertionPosition> positions,
+                       boolean[] routeMarkArray, int maxRoutes) {
         this.regretValue = regret;
         this.topM.clear();
         this.topM.addAll(positions);
@@ -65,8 +70,8 @@ public class CustomerRegretState {
         this.valid = true;
         this.version++;
 
-        // Update watched routes
-        updateWatchedRoutes();
+        // Update watched routes with shared mark array (avoids allocation)
+        updateWatchedRoutes(routeMarkArray, maxRoutes);
     }
 
     /**
@@ -78,16 +83,26 @@ public class CustomerRegretState {
 
     /**
      * Extract unique route IDs from topM for watcher maintenance
+     *
+     * FIX: Junior Dev Bug #3 - Now uses shared reusable mark array instead of allocating
+     *
+     * OLD: Allocated new boolean[10000] on EVERY call → massive GC overhead
+     * NEW: Reuses shared array from RegretCache → zero allocation overhead
+     *
+     * @param routeMarkArray Reusable boolean array for deduplication (from RegretCache)
+     * @param maxRoutes      Maximum number of routes (size of mark array)
      */
-    private void updateWatchedRoutes() {
-        // Use mark array for O(M) deduplication
-        boolean[] seen = new boolean[10000]; // Max route ID (adjust if needed)
+    private void updateWatchedRoutes(boolean[] routeMarkArray, int maxRoutes) {
+        // Clear the relevant portion of the reusable mark array
+        // Only clear what we might use (up to maxRoutes)
+        java.util.Arrays.fill(routeMarkArray, 0, maxRoutes, false);
+
         watchedCount = 0;
 
         for (InsertionPosition pos : topM) {
             int rid = pos.routeId;
-            if (rid >= 0 && rid < seen.length && !seen[rid]) {
-                seen[rid] = true;
+            if (rid >= 0 && rid < maxRoutes && !routeMarkArray[rid]) {
+                routeMarkArray[rid] = true;
                 if (watchedCount < watchedRoutes.length) {
                     watchedRoutes[watchedCount++] = rid;
                 }

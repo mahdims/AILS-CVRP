@@ -47,6 +47,9 @@ public class InsertionPosition implements Comparable<InsertionPosition> {
      * Checks that prev.next == next in the route's current state.
      * This detects if other insertions have invalidated this cached position.
      *
+     * FIX: Junior Dev Bug - Added cycle guard to prevent infinite loop on circular routes
+     * Circular lists have no null pointers, so we must track when we've returned to start
+     *
      * @param route Route to validate against
      * @return true if prev and next are still consecutive in the route
      */
@@ -54,14 +57,24 @@ public class InsertionPosition implements Comparable<InsertionPosition> {
         if (route == null || route.first == null) return false;
         if (route.nameRoute != routeId) return false;
 
-        // Walk route to find prev node
+        // Walk route to find prev node with cycle guard
         Node current = route.first;
-        while (current != null) {
+        Node start = current;
+        int iterCount = 0;
+        int maxIter = route.numElements + 2; // Safety limit
+
+        while (current != null && iterCount < maxIter) {
             if (current.name == prevId) {
                 // Found prev - check if next follows immediately
                 return current.next != null && current.next.name == nextId;
             }
             current = current.next;
+            iterCount++;
+
+            // Cycle detection: if we've returned to start, stop
+            if (current == start && iterCount > 0) {
+                break;
+            }
         }
         return false;
     }
@@ -70,6 +83,8 @@ public class InsertionPosition implements Comparable<InsertionPosition> {
      * Find and return the prev node in the route
      * Used when applying insertion after validation
      *
+     * FIX: Junior Dev Bug - Added cycle guard to prevent infinite loop on circular routes
+     *
      * @param route Route to search
      * @return Prev node, or null if not found
      */
@@ -77,11 +92,21 @@ public class InsertionPosition implements Comparable<InsertionPosition> {
         if (route == null || route.first == null) return null;
 
         Node current = route.first;
-        while (current != null) {
+        Node start = current;
+        int iterCount = 0;
+        int maxIter = route.numElements + 2; // Safety limit
+
+        while (current != null && iterCount < maxIter) {
             if (current.name == prevId) {
                 return current;
             }
             current = current.next;
+            iterCount++;
+
+            // Cycle detection: if we've returned to start, stop
+            if (current == start && iterCount > 0) {
+                break;
+            }
         }
         return null;
     }

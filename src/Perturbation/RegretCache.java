@@ -35,10 +35,14 @@ public class RegretCache {
     private boolean[] affectedMark; // Mark array for affected customers
     private int[] affectedBuffer; // Buffer for affected customer IDs
 
+    // FIX: Junior Dev Bug #3 - Reusable mark array for route deduplication
+    // Eliminates allocation churn in CustomerRegretState.updateWatchedRoutes
+    private boolean[] routeMarkArray; // Shared mark array for route deduplication
+
     // Configuration
     public final int M; // Cache size per customer (M = K + buffer)
     private final int maxCustomers;
-    private final int maxRoutes;
+    public final int maxRoutes;  // FIX: Bug #3 - Made public for shared array size
 
     // Dependencies
     private Instance instance;
@@ -74,8 +78,11 @@ public class RegretCache {
     /**
      * Create regret cache
      *
+     * FIX: Junior Dev Bug - maxRoutes must be routes.length (max allocated), not numRoutes (active count)
+     * This ensures Route.nameRoute values (which are assigned as array indices) never exceed array bounds
+     *
      * @param maxCustomers  Maximum number of customers in instance
-     * @param maxRoutes     Maximum number of routes
+     * @param maxRoutes     Maximum route array size (routes.length, NOT numRoutes)
      * @param K             Number of positions for regret calculation
      * @param instance      Problem instance (for distance calculations)
      * @param granularLimit KNN limit for candidate generation
@@ -109,12 +116,19 @@ public class RegretCache {
         this.affectedMark = new boolean[maxCustomers];
         this.affectedBuffer = new int[maxCustomers];
 
+        // FIX: Junior Dev Bug #3 - Allocate shared route mark array
+        this.routeMarkArray = new boolean[maxRoutes];
+
         // Create priority queue
         this.pq = new PriorityQueue<>(maxCustomers);
     }
 
     /**
      * Build reverse KNN index (call once during initialization)
+     *
+     * FIX: Junior Dev Issue #3 - Skip depot to avoid mass invalidation
+     * Depot (id=0) in reverseKNN would cause invalidating ALL customers with depot in KNN
+     * on every insertion near depot, which is a huge performance killer.
      *
      * @param candidates Array of customers to insert
      * @param count      Number of customers in array
@@ -127,7 +141,9 @@ public class RegretCache {
             // For each neighbor in KNN
             for (int j = 0; j < customer.knn.length && j < granularLimit; j++) {
                 int neighborId = customer.knn[j];
-                if (neighborId >= 0 && neighborId <= maxCustomers) {
+                // FIX: Skip depot (id=0) to avoid mass invalidation
+                // Depot adjacency is already handled by routeWatchers
+                if (neighborId > 0 && neighborId <= maxCustomers) {
                     reverseKNN[neighborId].add(customerId);
                 }
             }
@@ -174,6 +190,16 @@ public class RegretCache {
      */
     public CustomerRegretState getState(int customerId) {
         return states[customerId - 1];
+    }
+
+    /**
+     * Get shared route mark array for deduplication
+     * FIX: Junior Dev Bug #3 - Provides reusable array to avoid allocation churn
+     *
+     * @return Reusable boolean array sized to maxRoutes
+     */
+    public boolean[] getRouteMarkArray() {
+        return routeMarkArray;
     }
 
     /**

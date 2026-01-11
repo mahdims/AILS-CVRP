@@ -23,7 +23,7 @@ public class OmegaAdjustment
 	int numIterUpdate;
 	IdealDist idealDist;
 	
-	public OmegaAdjustment(PerturbationType perturbationType, Config config, Integer size,IdealDist idealDist) 
+	public OmegaAdjustment(PerturbationType perturbationType, Config config, Integer size,IdealDist idealDist)
 	{
 		this.perturbationType = perturbationType;
 		this.omega = idealDist.idealDist;
@@ -35,7 +35,12 @@ public class OmegaAdjustment
 
 		this.idealDist=idealDist;
 	}
-	
+
+	public void setOmega(double omega) {
+		// Clamp to valid bounds
+		this.omega = Math.min(omegaMax, Math.max(omega, omegaMin));
+	}
+
 	public void setupOmega()
 	{
 		obtainedDist=meanLSDist.getDynamicAverage();

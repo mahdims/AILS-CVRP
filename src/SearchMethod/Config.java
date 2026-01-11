@@ -31,10 +31,14 @@ public class Config implements Cloneable {
 	int eliteSetSize;
 	double eliteSetBeta;
 	double eliteSetMinDiversity;
+	int stringLength; // k-node sequence length for frequency tracking
+	boolean stringFrequencyLoggingEnabled; // Enable CSV logging of string frequencies
+	int stringFrequencyLoggingInterval; // Log every N iterations
+	int stringFrequencyLoggingTopK; // Number of top strings to log
 
 	// --------------------Adaptive Operator Selection-------------------
 	boolean aosEnabled;
-	boolean aosDecoupled;  // Decoupled destroy-repair selection (recommended by Pisinger & Ropke 2019)
+	boolean aosDecoupled; // Decoupled destroy-repair selection (recommended by Pisinger & Ropke 2019)
 	int aosSegmentLength;
 	double aosReactionFactor;
 	double aosMinProbability;
@@ -82,9 +86,13 @@ public class Config implements Cloneable {
 		this.eliteSetSize = 10;
 		this.eliteSetBeta = 0.2;
 		this.eliteSetMinDiversity = 0.15;
+		this.stringLength = 3;
+		this.stringFrequencyLoggingEnabled = true;
+		this.stringFrequencyLoggingInterval = 100;
+		this.stringFrequencyLoggingTopK = 300;
 
 		this.aosEnabled = true;
-		this.aosDecoupled = true;  // Decoupled destroy-repair selection (Pisinger & Ropke 2019)
+		this.aosDecoupled = true; // Decoupled destroy-repair selection (Pisinger & Ropke 2019)
 		this.aosSegmentLength = 20;
 		this.aosReactionFactor = 0.2;
 		this.aosMinProbability = 0.05;
@@ -338,6 +346,38 @@ public class Config implements Cloneable {
 
 	public void setEliteSetMinDiversity(double eliteSetMinDiversity) {
 		this.eliteSetMinDiversity = eliteSetMinDiversity;
+	}
+
+	public int getStringLength() {
+		return stringLength;
+	}
+
+	public void setStringLength(int stringLength) {
+		this.stringLength = stringLength;
+	}
+
+	public boolean isStringFrequencyLoggingEnabled() {
+		return stringFrequencyLoggingEnabled;
+	}
+
+	public void setStringFrequencyLoggingEnabled(boolean stringFrequencyLoggingEnabled) {
+		this.stringFrequencyLoggingEnabled = stringFrequencyLoggingEnabled;
+	}
+
+	public int getStringFrequencyLoggingInterval() {
+		return stringFrequencyLoggingInterval;
+	}
+
+	public void setStringFrequencyLoggingInterval(int stringFrequencyLoggingInterval) {
+		this.stringFrequencyLoggingInterval = stringFrequencyLoggingInterval;
+	}
+
+	public int getStringFrequencyLoggingTopK() {
+		return stringFrequencyLoggingTopK;
+	}
+
+	public void setStringFrequencyLoggingTopK(int stringFrequencyLoggingTopK) {
+		this.stringFrequencyLoggingTopK = stringFrequencyLoggingTopK;
 	}
 
 	public boolean isAosEnabled() {

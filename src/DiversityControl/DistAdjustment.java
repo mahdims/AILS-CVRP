@@ -14,7 +14,7 @@ public class DistAdjustment
 	StoppingCriterionType stoppingCriterionType;
 	IdealDist idealDist;
 
-	public DistAdjustment(IdealDist idealDist,Config config,double executionMaximumLimit) 
+	public DistAdjustment(IdealDist idealDist,Config config,double executionMaximumLimit)
 	{
 		this.idealDist=idealDist;
 		this.executionMaximumLimit=executionMaximumLimit;
@@ -22,6 +22,11 @@ public class DistAdjustment
 		this.distMMax=config.getDMax();
 		this.idealDist.idealDist=distMMax;
 		this.stoppingCriterionType=config.getStoppingCriterionType();
+	}
+
+	public void setIdealDist(double dist) {
+		// Clamp to valid bounds
+		this.idealDist.idealDist = Math.min(distMMax, Math.max(dist, distMMin));
 	}
 
 	public void distAdjustment()

@@ -315,6 +315,28 @@ public class AILSII implements Runnable {
 
 			System.out.printf("[Thread-%d] Time-aligned eta initialization: %.4f (global progress: %.1f%%)%n",
 					threadId, alignedEta, globalProgress * 100);
+
+			// Time-aligned ideal distance initialization (mirror eta pattern)
+			// Workers starting later should begin with lower ideal distance
+			// to match the global search phase (intensification vs diversification)
+			double alignedIdealDist = config.getDMax() * Math.pow(
+					config.getDMin() / (double) config.getDMax(),
+					globalProgress);
+
+			this.distAdjustment.setIdealDist(alignedIdealDist);
+
+			// Also update omega in all perturbation operators to match aligned idealDist
+			// This ensures operators start with appropriate perturbation strength
+			if (omegaSetup != null && !omegaSetup.isEmpty()) {
+				for (OmegaAdjustment omegaAdj : omegaSetup.values()) {
+					if (omegaAdj != null) {
+						omegaAdj.setOmega(alignedIdealDist);
+					}
+				}
+			}
+
+			System.out.printf("[Thread-%d] Time-aligned idealDist initialization: %.4f (global progress: %.1f%%)%n",
+					threadId, alignedIdealDist, globalProgress * 100);
 		}
 
 		// Initialize perturbation operators
@@ -471,6 +493,16 @@ public class AILSII implements Runnable {
 			applyFleetMinimization();
 		}
 
+		// Initialize CSV logging for string frequencies
+		if (config.isStringFrequencyLoggingEnabled() && threadId == 1) {
+			// Only main thread logs (avoid duplicates in multi-start mode)
+			String fullName = instance.getName().replace(".vrp", "");
+			// Extract just the filename (remove directory path)
+			String instanceName = fullName.substring(fullName.lastIndexOf('/') + 1);
+			instanceName = instanceName.substring(instanceName.lastIndexOf('\\') + 1);
+			eliteSet.initializeCSVLogging(instanceName);
+		}
+
 		// Start Path Relinking thread if enabled
 		if (config.getPrConfig().isEnabled() && prThread != null) {
 			// Pass global time limit to PR thread so it can stop independently
@@ -497,6 +529,11 @@ public class AILSII implements Runnable {
 							threadId);
 					break;
 				}
+			}
+
+			// CSV logging of string frequencies (every N iterations)
+			if (threadId == 1 && eliteSet.shouldLogAtIteration(iterator)) {
+				eliteSet.logStringFrequencies(iterator);
 			}
 
 			// Check for external termination signal
@@ -700,6 +737,11 @@ public class AILSII implements Runnable {
 		} else {
 			// Single-thread mode: print full detailed summary
 			printPerturbationUsageSummary();
+		}
+
+		// Close CSV logging if it was enabled
+		if (config.isStringFrequencyLoggingEnabled() && threadId == 1) {
+			eliteSet.closeCSVLogging();
 		}
 	}
 

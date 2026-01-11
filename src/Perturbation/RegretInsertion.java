@@ -246,8 +246,13 @@ public class RegretInsertion {
         }
 
         if (topK.size() == 1) {
-            // Only one feasible position - extremely high regret
-            return 1e9;
+            // FIX BUG#3: Only one feasible position - extremely high regret
+            // Add costDelta to break ties when multiple customers have single positions
+            // This ensures customers with cheaper single positions are inserted first
+            // Example: customer A (regret=1e9+50) vs customer B (regret=1e9+100)
+            // → A inserted first (cheaper to place)
+            double bestCost = topK.get(0).costDelta;
+            return 1e9 - bestCost;
         }
 
         double regret = 0;
@@ -292,11 +297,22 @@ public class RegretInsertion {
         int knnChecked = 0;
         for (int i = 0; i < customer.knn.length && knnChecked < granularLimit; i++) {
             if (customer.knn[i] == 0) {
-                // Depot - try insertion at start of all routes
+                // FIX BUG#5: Depot - try insertion at BOTH start and end of all routes
+                // Capacity check is done inside tryInsertion for consistency
                 for (int r = 0; r < numRoutes; r++) {
-                    if (routes[r] != null && routes[r].first != null &&
-                            routes[r].totalDemand + customer.demand <= instance.getCapacity()) {
+                    if (routes[r] != null && routes[r].first != null) {
+                        // Try insertion at START of route (after depot, before first customer)
                         tryInsertion(routes[r].first, customer, customerId, topK, K);
+
+                        // Try insertion at END of route (after last customer, before returning to
+                        // depot)
+                        // In circular route: first.prev is the last node (depot or last customer)
+                        // We want to insert before the depot, so check if first.prev is a customer
+                        if (routes[r].first.prev != null &&
+                                routes[r].first.prev != routes[r].first &&
+                                routes[r].first.prev.name != 0) { // Not the depot itself
+                            tryInsertion(routes[r].first.prev, customer, customerId, topK, K);
+                        }
                     }
                 }
                 knnChecked++;
@@ -304,15 +320,17 @@ public class RegretInsertion {
                 // Check neighbor node
                 Node neighbor = solutionArray[customer.knn[i] - 1];
                 if (neighbor.nodeBelong && neighbor.route != null) {
-                    // Check capacity before trying insertion
-                    if (neighbor.route.totalDemand + customer.demand <= instance.getCapacity()) {
-                        // CRITICAL: Validate neighbor pointers before tryInsertion
-                        if (neighbor.prev != null && neighbor.prev.next != null) {
-                            tryInsertion(neighbor.prev, customer, customerId, topK, K);
-                        }
-                        if (neighbor.next != null) {
-                            tryInsertion(neighbor, customer, customerId, topK, K);
-                        }
+                    // FIX BUG#1/#2: Removed outer capacity check to avoid redundancy
+                    // Capacity is now checked ONLY inside tryInsertion where actual
+                    // insertion happens (using insertAfter.route, not neighbor.route)
+                    // This ensures consistency and correctness
+
+                    // Validate neighbor pointers before tryInsertion
+                    if (neighbor.prev != null && neighbor.prev.next != null) {
+                        tryInsertion(neighbor.prev, customer, customerId, topK, K);
+                    }
+                    if (neighbor.next != null) {
+                        tryInsertion(neighbor, customer, customerId, topK, K);
                     }
                     knnChecked++;
                 }
@@ -327,7 +345,8 @@ public class RegretInsertion {
         if (result.isEmpty()) {
             for (int r = 0; r < numRoutes; r++) {
                 Route route = routes[r];
-                if (route.first != null && route.totalDemand + customer.demand <= instance.getCapacity()) {
+                // FIX BUG#1/#2: Removed capacity check here - let tryInsertion handle it
+                if (route.first != null) {
                     Node current = route.first;
                     Node start = current; // Track starting node for cycle detection
                     int iterCount = 0; // Safety counter
@@ -404,6 +423,17 @@ public class RegretInsertion {
 
     /**
      * Try inserting customer after a given node and add to top-K heap if good
+     *
+     * FIX BUG#1/#2: This method is the SINGLE SOURCE OF TRUTH for capacity
+     * validation.
+     * All outer capacity checks have been removed to ensure consistency and
+     * correctness.
+     *
+     * @param insertAfter The node after which to insert the customer
+     * @param customer    The customer node to insert
+     * @param customerId  The customer ID
+     * @param topK        Max-heap tracking the K best positions
+     * @param K           Number of best positions to keep
      */
     private void tryInsertion(Node insertAfter, Node customer, int customerId,
             PriorityQueue<InsertionData> topK, int K) {
@@ -412,7 +442,9 @@ public class RegretInsertion {
             return;
         }
 
-        // Additional validation: ensure route has capacity
+        // CRITICAL: Capacity check using insertAfter.route (the actual route being
+        // modified)
+        // This is the ONLY place capacity is checked - ensures consistency
         if (insertAfter.route.totalDemand + customer.demand > instance.getCapacity()) {
             return;
         }
@@ -471,6 +503,14 @@ public class RegretInsertion {
     /**
      * Apply insertion to solution
      *
+     * FIX: Junior Dev Bug #1 - Now delegates to route.addAfter for proper
+     * bookkeeping
+     * Previously this method manually manipulated pointers but missed setting:
+     * - customer.nodeBelong
+     * - route.numElements
+     * - route.fRoute
+     * This caused data corruption and inconsistent route state.
+     *
      * @param solution  Solution to modify
      * @param insertion Insertion data
      */
@@ -479,24 +519,14 @@ public class RegretInsertion {
         Node insertAfter = insertion.insertAfter;
         Route route = insertion.route;
 
-        // Insert customer after insertAfter node
-        customer.next = insertAfter.next;
-        customer.prev = insertAfter;
+        // FIX: Delegate to Route.addAfter which handles ALL bookkeeping correctly
+        // This ensures: nodeBelong, numElements, fRoute, pointers, totalDemand,
+        // modified flag
+        double actualCost = route.addAfter(customer, insertAfter);
 
-        if (insertAfter.next != null) {
-            insertAfter.next.prev = customer;
-        }
-        insertAfter.next = customer;
-
-        // Update route membership
-        customer.route = route;
-        route.totalDemand += customer.demand;
-
-        // Update cost
-        solution.f += insertion.costDelta;
-
-        // Mark route as modified for local search
-        route.modified = true;
+        // Update solution cost (route.fRoute is updated by addAfter, we update
+        // solution.f)
+        solution.f += actualCost;
     }
 
     // ========================================================================
@@ -537,7 +567,11 @@ public class RegretInsertion {
         boolean addNoise = (heuristic == InsertionHeuristic.RegretRandom);
 
         // Initialize cache
-        RegretCache cache = new RegretCache(instance.getSize(), numRoutes, K, instance, granularLimit);
+        // FIX: Junior Dev Bug - Use routes.length instead of numRoutes to handle sparse
+        // route arrays
+        // routes.length is the max allocated size, ensures nameRoute values never
+        // exceed array bounds
+        RegretCache cache = new RegretCache(instance.getSize(), routes.length, K, instance, granularLimit);
 
         // Build reverse KNN index
         cache.buildReverseKNN(candidates, count);
@@ -556,8 +590,9 @@ public class RegretInsertion {
             // Compute regret
             double regret = calculateRegretFromPositions(topM, K, addNoise);
 
+            // FIX: Junior Dev Bug #3 - Pass shared route mark array to avoid allocation
             // Update state
-            state.update(regret, topM);
+            state.update(regret, topM, cache.getRouteMarkArray(), cache.maxRoutes);
 
             // Register with route watchers
             cache.addToWatchers(customerId, state.watchedRoutes, state.watchedCount);
@@ -610,8 +645,9 @@ public class RegretInsertion {
 
                 double regret = calculateRegretFromPositions(topM, K, addNoise);
 
+                // FIX: Junior Dev Bug #3 - Pass shared route mark array to avoid allocation
                 // Update state
-                state.update(regret, topM);
+                state.update(regret, topM, cache.getRouteMarkArray(), cache.maxRoutes);
 
                 // Re-register with watchers
                 cache.addToWatchers(bestCustomerId, state.watchedRoutes, state.watchedCount);
@@ -682,11 +718,19 @@ public class RegretInsertion {
             int neighborId = customer.knn[i];
 
             if (neighborId == 0) {
-                // DEPOT: Try insertion at start of all routes
+                // FIX BUG#5: DEPOT - Try insertion at BOTH start and end of all routes
                 for (int r = 0; r < numRoutes; r++) {
                     if (routes[r] != null && routes[r].first != null) {
                         if (routes[r].totalDemand + customer.demand <= instance.getCapacity()) {
+                            // Try insertion at START of route
                             tryInsertionStable(routes[r], routes[r].first, customer, customerId, topM, M);
+
+                            // Try insertion at END of route (before returning to depot)
+                            if (routes[r].first.prev != null &&
+                                    routes[r].first.prev != routes[r].first &&
+                                    routes[r].first.prev.name != 0) { // Not depot
+                                tryInsertionStable(routes[r], routes[r].first.prev, customer, customerId, topM, M);
+                            }
                         }
                     }
                 }
@@ -708,8 +752,13 @@ public class RegretInsertion {
         List<InsertionPosition> result = new ArrayList<>(topM);
         result.sort((a, b) -> Double.compare(a.costDelta, b.costDelta));
 
-        // Fallback: if not enough positions found
-        if (result.size() < Math.min(M, numRoutes * 2)) {
+        // FIX: Junior Dev Bug #2 - Reduced aggressive fallback threshold
+        // OLD: result.size() < Math.min(M, numRoutes * 2)
+        // With M=5-7, this triggered fallback almost always, destroying KNN speedup!
+        // NEW: Only fallback when truly necessary (no positions found or very few)
+        // This preserves O(knn) complexity instead of forcing O(routes * customers)
+        int minRequired = Math.max(2, Math.min(M / 2, numRoutes)); // At least 2, at most half of M
+        if (result.isEmpty() || (result.size() < minRequired && numRoutes > 5)) {
             result = fallbackFullScan(solutionArray, routes, numRoutes, customer, M);
         }
 
@@ -750,6 +799,9 @@ public class RegretInsertion {
 
     /**
      * Fallback: full scan if KNN didn't find enough positions
+     *
+     * FIX: Junior Dev Issue - Added cycle guard to prevent infinite loop on
+     * circular routes
      */
     private List<InsertionPosition> fallbackFullScan(Node[] solutionArray, Route[] routes,
             int numRoutes, Node customer, int M) {
@@ -764,10 +816,26 @@ public class RegretInsertion {
             if (route.totalDemand + customer.demand > instance.getCapacity())
                 continue;
 
+            // FIX: Add cycle guard to prevent infinite loop on circular routes
             Node current = route.first;
-            while (current != null && current.next != null) {
+            Node start = current; // Remember starting point
+            int iterCount = 0;
+            int maxIter = route.numElements + 10; // Safety limit
+
+            while (current != null && current.next != null && iterCount < maxIter) {
                 tryInsertionStable(route, current, customer, customer.name, topM, M);
                 current = current.next;
+                iterCount++;
+
+                // Cycle detection: if we've returned to start, stop
+                if (current == start && iterCount > 0) {
+                    break;
+                }
+            }
+
+            if (iterCount >= maxIter) {
+                System.err.println("WARNING: Fallback scan hit iteration limit in route " + r +
+                        " (numElements=" + route.numElements + ")");
             }
         }
 
@@ -782,8 +850,14 @@ public class RegretInsertion {
     private double calculateRegretFromPositions(List<InsertionPosition> topK, int K, boolean addNoise) {
         if (topK.isEmpty())
             return 0.0;
-        if (topK.size() == 1)
-            return 1e9; // Only one position - extreme regret
+
+        if (topK.size() == 1) {
+            // FIX BUG#3: Only one position - extreme regret with tie-breaking
+            // Add costDelta to ensure customers with cheaper single positions
+            // are inserted first when multiple customers have only one option
+            double bestCost = topK.get(0).costDelta;
+            return 1e9 - bestCost;
+        }
 
         double regret = 0.0;
         double bestCost = topK.get(0).costDelta;

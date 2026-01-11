@@ -29,7 +29,7 @@ varphi=40
 # Perturbation operators (destroy methods) - comma-separated
 # Available: Sequential, Concentric, SISR, RouteRemoval, CriticalRemoval, RandomRemoval
 # perturbation=Sequential,Concentric,SISR,RouteRemoval,CriticalRemoval,RandomRemoval
-perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval,SISR
+perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval
 
 
 # Insertion heuristics (repair/recreate methods) - comma-separated
@@ -43,7 +43,7 @@ perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval,SISR
 #
 # Recommended for balanced performance: Distance,Regret2,Regret3
 # For more exploration: Distance,Regret2,Regret3,RegretRandom
-insertionHeuristics=Distance,Cost,Regret2
+insertionHeuristics=Distance,Cost
 
 # Acceptance threshold range
 etaMin=0.01
@@ -71,7 +71,7 @@ sisr.blinkRate=0.01
 
 # Rate at which fleet minimization is applied probabilistically (0.005 = 0.5% probability)
 # Applied only in first 25% of run
-fleetMinimizationRate=0.001
+fleetMinimizationRate=0.00
 
 # Maximum iterations for fleet minimization phase
 fleetMinimizationMaxIter=200
@@ -169,7 +169,7 @@ multiStart.enabled=true
 #   Workstation (16-32 cores): 14-30 workers
 #   Aggressive (2x Intel 6972P, 96 cores): 48-94 workers for maximum parallelism
 # Note: Leave some cores for PR thread and operating system
-multiStart.numWorkerThreads=2
+multiStart.numWorkerThreads=4
 
 # Minimum elite set size before launching worker threads
 # Workers need diverse high-quality seeds to start from
@@ -182,18 +182,18 @@ multiStart.minEliteSizeForWorkers=6
 #   2. Worker's best solution is >competitiveThreshold% worse than global best
 # If worker is competitive with global best, it keeps running (intensifying)
 # Recommended: 500-1000 iterations for aggressive restart
-multiStart.stagnationThreshold=1000
+multiStart.stagnationThreshold=4000
 
 # Competitive threshold (percentage gap from global best)
 # Worker is competitive if within this % of global best
 # Competitive workers are NOT restarted (even without recent insertions)
 # CRITICAL: Set this very tight (0.001% = 0.00001) so workers restart frequently
 # This ensures continuous fresh exploration rather than wasting compute
-multiStart.competitiveThreshold=0.0001
+multiStart.competitiveThreshold=0.001
 
 # Notify main thread when workers find better solutions
 # If enabled, main thread adopts worker discoveries as reference solutions
 # Improves collaboration: workers can guide main thread to promising regions
 # CRITICAL: Enable this to prevent best solutions from being lost
 # When disabled, worker discoveries don't propagate to main thread
-multiStart.notifyMainThread=true
+multiStart.notifyMainThread=false

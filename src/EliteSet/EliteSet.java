@@ -2,12 +2,22 @@ package EliteSet;
 
 import Solution.Solution;
 import Solution.Node;
+import Solution.Route;
 import Data.Instance;
 import SearchMethod.Config;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 /**
  * Elite Set: Maintains a diverse set of high-quality solutions
@@ -61,6 +71,19 @@ public class EliteSet {
     // Thread safety
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
+    // String frequency tracking
+    private HashMap<String, Integer> stringFrequencies;
+    private int stringLength;
+    private long totalStringsExtracted;
+
+    // CSV logging
+    private BufferedWriter csvWriter;
+    private String csvFilePath;
+    private boolean loggingEnabled;
+    private int loggingInterval;
+    private int loggingTopK;
+    private long startTime;
+
     /**
      * Constructor
      *
@@ -88,6 +111,19 @@ public class EliteSet {
         this.minDiversity = Double.MAX_VALUE;
         this.maxDiversity = -Double.MAX_VALUE;
         this.currentIteration = 0;
+
+        // Initialize string frequency tracking
+        this.stringFrequencies = new HashMap<>();
+        this.stringLength = config.getStringLength();
+        this.totalStringsExtracted = 0;
+
+        // Initialize CSV logging
+        this.loggingEnabled = config.isStringFrequencyLoggingEnabled();
+        this.loggingInterval = config.getStringFrequencyLoggingInterval();
+        this.loggingTopK = config.getStringFrequencyLoggingTopK();
+        this.csvWriter = null;
+        this.csvFilePath = null;
+        this.startTime = System.currentTimeMillis();
     }
 
     /**
@@ -299,6 +335,9 @@ public class EliteSet {
 
         // Update scores for all solutions (O(n) operation)
         updateAllScores();
+
+        // Extract and record k-node strings from newly inserted solution
+        extractAndRecordStrings(newElite.solution);
     }
 
     /**
@@ -698,11 +737,280 @@ public class EliteSet {
             if (initialCount > 0) {
                 System.out.printf("  Initial: %d (%.1f%%)\n", initialCount, 100.0 * initialCount / elites.size());
             }
+
+            // String frequency tracking statistics
+            System.out.println("\nString Frequency Tracking:");
+            StringTrackingStats stats = getStringTrackingStats();
+            System.out.println("  " + stats);
+            if (stats.uniqueStrings > 0) {
+                System.out.println("  Top 5 frequent strings:");
+                for (StringFrequency sf : getTopFrequentStrings(5)) {
+                    System.out.println("    " + sf);
+                }
+            }
             System.out.println("====================================");
         } finally {
             lock.readLock().unlock();
         }
     }
+
+    // ==================== String Frequency Tracking Methods ====================
+
+    /**
+     * Extract all k-node strings from a solution and update frequency map.
+     * Called after a solution is successfully inserted into the elite set.
+     *
+     * @param solution Solution to extract strings from
+     */
+    private void extractAndRecordStrings(Solution solution) {
+        for (int r = 0; r < solution.numRoutes; r++) {
+            extractStringsFromRoute(solution.routes[r]);
+        }
+    }
+
+    /**
+     * Extract k-node consecutive sequences from a route (circular: depot->nodes->depot).
+     *
+     * @param route Route to extract strings from
+     */
+    private void extractStringsFromRoute(Route route) {
+        if (route.numElements <= 1) return;  // Empty route (only depot)
+
+        // Collect all nodes including depot at boundaries
+        List<Integer> nodeSequence = new ArrayList<>();
+        Node current = route.first;
+        do {
+            nodeSequence.add(current.name);
+            current = current.next;
+        } while (current != route.first);
+
+        // Extract k-node substrings
+        for (int i = 0; i <= nodeSequence.size() - stringLength; i++) {
+            List<Integer> substring = nodeSequence.subList(i, i + stringLength);
+            String canonicalKey = toCanonicalString(substring);
+            stringFrequencies.merge(canonicalKey, 1, Integer::sum);
+            totalStringsExtracted++;
+        }
+    }
+
+    /**
+     * Convert node sequence to canonical form: (5-12-8) and (8-12-5) -> "5 8 12"
+     * Uses lexicographic comparison to choose forward/reverse direction.
+     *
+     * @param nodes Node sequence (size = k)
+     * @return Canonical string (lexicographically smaller direction, space-separated)
+     */
+    private String toCanonicalString(List<Integer> nodes) {
+        // Determine canonical direction (lexicographically smaller)
+        boolean useForward = true;
+        for (int i = 0; i < nodes.size() / 2; i++) {
+            int fromStart = nodes.get(i);
+            int fromEnd = nodes.get(nodes.size() - 1 - i);
+            if (fromStart < fromEnd) {
+                useForward = true;
+                break;
+            } else if (fromStart > fromEnd) {
+                useForward = false;
+                break;
+            }
+        }
+
+        // Build space-separated string
+        StringBuilder sb = new StringBuilder();
+        if (useForward) {
+            for (int i = 0; i < nodes.size(); i++) {
+                if (i > 0) sb.append(' ');
+                sb.append(nodes.get(i));
+            }
+        } else {
+            for (int i = nodes.size() - 1; i >= 0; i--) {
+                if (i < nodes.size() - 1) sb.append(' ');
+                sb.append(nodes.get(i));
+            }
+        }
+        return sb.toString();
+    }
+
+    // ==================== Public API for Perturbation Operators ====================
+
+    /**
+     * Get frequency of a specific string sequence (thread-safe).
+     *
+     * @param nodes Node sequence in any direction
+     * @return Frequency count (0 if never seen)
+     */
+    public int getStringFrequency(List<Integer> nodes) {
+        lock.readLock().lock();
+        try {
+            String canonical = toCanonicalString(nodes);
+            return stringFrequencies.getOrDefault(canonical, 0);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get top-k most frequent strings (thread-safe).
+     *
+     * @param k Number of top strings to return
+     * @return List of (string, frequency) pairs, sorted descending by frequency
+     */
+    public List<StringFrequency> getTopFrequentStrings(int k) {
+        lock.readLock().lock();
+        try {
+            return stringFrequencies.entrySet().stream()
+                .map(e -> new StringFrequency(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Integer.compare(b.frequency, a.frequency))
+                .limit(k)
+                .collect(Collectors.toList());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get top-k least frequent strings (rare patterns, thread-safe).
+     *
+     * @param k Number of bottom strings to return
+     * @return List of (string, frequency) pairs, sorted ascending by frequency
+     */
+    public List<StringFrequency> getLeastFrequentStrings(int k) {
+        lock.readLock().lock();
+        try {
+            return stringFrequencies.entrySet().stream()
+                .map(e -> new StringFrequency(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Integer.compare(a.frequency, b.frequency))
+                .limit(k)
+                .collect(Collectors.toList());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get all string frequencies as snapshot (thread-safe).
+     *
+     * @return Immutable copy of frequency map
+     */
+    public Map<String, Integer> getAllStringFrequencies() {
+        lock.readLock().lock();
+        try {
+            return new HashMap<>(stringFrequencies);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Get statistics about string tracking (thread-safe).
+     *
+     * @return Statistics object with tracking info
+     */
+    public StringTrackingStats getStringTrackingStats() {
+        lock.readLock().lock();
+        try {
+            int uniqueStrings = stringFrequencies.size();
+            int maxFreq = stringFrequencies.values().stream()
+                .max(Integer::compare).orElse(0);
+            double avgFreq = totalStringsExtracted / (double) Math.max(1, uniqueStrings);
+            return new StringTrackingStats(stringLength, uniqueStrings,
+                                           totalStringsExtracted, maxFreq, avgFreq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // ==================== CSV Logging Methods ====================
+
+    /**
+     * Initialize CSV file for string frequency logging.
+     * Creates output directory and writes header row.
+     *
+     * @param instanceName Name of the problem instance (for filename)
+     */
+    public void initializeCSVLogging(String instanceName) {
+        if (!loggingEnabled) return;
+
+        try {
+            // Create logs directory if it doesn't exist
+            Files.createDirectories(Paths.get("logs"));
+
+            // Generate filename with timestamp
+            String timestamp = String.format("%tY%<tm%<td_%<tH%<tM%<tS", System.currentTimeMillis());
+            csvFilePath = String.format("logs/string_freq_%s_%s.csv", instanceName, timestamp);
+
+            // Open file and write header
+            csvWriter = new BufferedWriter(new FileWriter(csvFilePath));
+            csvWriter.write("iteration,time_sec,elite_size,unique_strings,total_extracted,rank,string,frequency\n");
+            csvWriter.flush();
+
+            System.out.println("[CSV Logger] Initialized: " + csvFilePath);
+        } catch (IOException e) {
+            System.err.println("[CSV Logger] Failed to initialize: " + e.getMessage());
+            loggingEnabled = false;
+        }
+    }
+
+    /**
+     * Log a snapshot of string frequencies to CSV.
+     * Called every N iterations based on loggingInterval.
+     *
+     * @param iteration Current iteration number
+     */
+    public void logStringFrequencies(int iteration) {
+        if (!loggingEnabled || csvWriter == null) return;
+
+        lock.readLock().lock();
+        try {
+            double elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0;
+            int eliteSize = elites.size();
+            int uniqueStrings = stringFrequencies.size();
+
+            // Get top-K strings
+            List<StringFrequency> topStrings = getTopFrequentStrings(loggingTopK);
+
+            // Write each string as a row
+            for (int rank = 0; rank < topStrings.size(); rank++) {
+                StringFrequency sf = topStrings.get(rank);
+                csvWriter.write(String.format("%d,%.2f,%d,%d,%d,%d,\"%s\",%d\n",
+                    iteration, elapsedTime, eliteSize, uniqueStrings, totalStringsExtracted,
+                    rank + 1, sf.stringKey, sf.frequency));
+            }
+            csvWriter.flush();
+
+        } catch (IOException e) {
+            System.err.println("[CSV Logger] Write error: " + e.getMessage());
+            loggingEnabled = false;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Close CSV file when search completes.
+     */
+    public void closeCSVLogging() {
+        if (csvWriter != null) {
+            try {
+                csvWriter.close();
+                System.out.println("[CSV Logger] Closed: " + csvFilePath);
+            } catch (IOException e) {
+                System.err.println("[CSV Logger] Error closing file: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Check if logging should occur at this iteration.
+     *
+     * @param iteration Current iteration number
+     * @return true if should log at this iteration
+     */
+    public boolean shouldLogAtIteration(int iteration) {
+        return loggingEnabled && iteration % loggingInterval == 0 && iteration > 0;
+    }
+
+    // ==================== Inner Classes ====================
 
     /**
      * Inner class for diversity statistics
@@ -721,6 +1029,61 @@ public class EliteSet {
         @Override
         public String toString() {
             return String.format("DiversityStats[min=%.4f, max=%.4f, avg=%.4f]", min, max, avg);
+        }
+    }
+
+    /**
+     * Immutable result class for string frequency queries.
+     */
+    public static class StringFrequency {
+        public final String stringKey;
+        public final int frequency;
+
+        public StringFrequency(String stringKey, int frequency) {
+            this.stringKey = stringKey;
+            this.frequency = frequency;
+        }
+
+        /**
+         * Parse string back to node list
+         */
+        public List<Integer> toNodeList() {
+            return Arrays.stream(stringKey.split(" "))
+                .map(Integer::parseInt)
+                .collect(Collectors.toList());
+        }
+
+        @Override
+        public String toString() {
+            return String.format("[%s]: %d", stringKey, frequency);
+        }
+    }
+
+    /**
+     * Statistics about string frequency tracking.
+     */
+    public static class StringTrackingStats {
+        public final int stringLength;
+        public final int uniqueStrings;
+        public final long totalExtracted;
+        public final int maxFrequency;
+        public final double avgFrequency;
+
+        public StringTrackingStats(int stringLength, int uniqueStrings,
+                                   long totalExtracted, int maxFrequency,
+                                   double avgFrequency) {
+            this.stringLength = stringLength;
+            this.uniqueStrings = uniqueStrings;
+            this.totalExtracted = totalExtracted;
+            this.maxFrequency = maxFrequency;
+            this.avgFrequency = avgFrequency;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("StringStats[k=%d, unique=%d, total=%d, max=%d, avg=%.1f]",
+                               stringLength, uniqueStrings, totalExtracted,
+                               maxFrequency, avgFrequency);
         }
     }
 }
