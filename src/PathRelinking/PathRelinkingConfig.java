@@ -157,4 +157,18 @@ public class PathRelinkingConfig {
         config.setEnabled(false);
         return config;
     }
+
+    /**
+     * Create a deep copy of this configuration
+     */
+    public PathRelinkingConfig copy() {
+        return new PathRelinkingConfig(
+            this.enabled,
+            this.startIterationDelay,
+            this.prFrequency,
+            this.prMaxIterations,
+            this.prTimeLimit,
+            this.minEliteSizeForPR
+        );
+    }
 }

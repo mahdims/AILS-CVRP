@@ -1,0 +1,21 @@
+# AILS-II Worker 3 Parameters - Diversification-Focused Strategy
+#
+# Strategy: Aggressive exploration with SISR and decoupled AOS
+#
+# This file contains ONLY worker-specific parameter overrides.
+# All shared parameters (elite set, PR, multi-start, etc.) are inherited from parameters.txt
+
+# ============================================================
+# Worker 3 Specific Overrides
+# ============================================================
+
+# Perturbation strength - LARGER for aggressive exploration
+dMin=10
+dMax=40
+
+# Perturbation operators - Diversification-focused
+perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval
+
+# Insertion heuristics - Mixed strategies
+insertionHeuristics=Distance,Cost
+

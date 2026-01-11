@@ -90,4 +90,17 @@ public class SISRConfig {
             blinkRate, sources.getOrDefault("sisr.blinkRate", "default")
         );
     }
+
+    /**
+     * Create a deep copy of this configuration
+     */
+    public SISRConfig copy() {
+        SISRConfig copied = new SISRConfig();
+        copied.maxStringLength = this.maxStringLength;
+        copied.splitRate = this.splitRate;
+        copied.splitDepth = this.splitDepth;
+        copied.avgRemoved = this.avgRemoved;
+        copied.blinkRate = this.blinkRate;
+        return copied;
+    }
 }

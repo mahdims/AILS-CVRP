@@ -287,6 +287,8 @@ public class InputParameters
 		parameterSources.put("eliteSetSize", "default");
 		parameterSources.put("eliteSetBeta", "default");
 		parameterSources.put("eliteSetMinDiversity", "default");
+		parameterSources.put("patternInjectionMinPatterns", "default");
+		parameterSources.put("patternInjectionMaxPatterns", "default");
 		parameterSources.put("warmStart", "default");
 		parameterSources.put("pr.enabled", "default");
 		parameterSources.put("pr.startIterationDelay", "default");
@@ -427,6 +429,16 @@ public class InputParameters
 					break;
 				case "eliteSetMinDiversity":
 					config.setEliteSetMinDiversity(Double.parseDouble(value));
+					parameterSources.put(key, source);
+					break;
+
+				// Pattern Injection parameters
+				case "patternInjectionMinPatterns":
+					config.setPatternInjectionMinPatterns(Integer.parseInt(value));
+					parameterSources.put(key, source);
+					break;
+				case "patternInjectionMaxPatterns":
+					config.setPatternInjectionMaxPatterns(Integer.parseInt(value));
 					parameterSources.put(key, source);
 					break;
 
@@ -610,6 +622,66 @@ public class InputParameters
 			config.setInsertionHeuristics(array);
 			parameterSources.put("insertionHeuristics", source);
 		}
+	}
+
+	/**
+	 * Load worker-specific configuration from a parameter file
+	 * Creates a copy of the base config and applies worker-specific overrides
+	 *
+	 * @param baseConfig Base configuration to copy from (usually main thread config)
+	 * @param workerParamFile Worker-specific parameter file (e.g., "parameters_worker1.txt")
+	 * @return Config with worker-specific parameters applied, or baseConfig if file doesn't exist
+	 */
+	public static Config loadWorkerConfig(Config baseConfig, String workerParamFile) {
+		File paramFile = new File(workerParamFile);
+		if (!paramFile.exists()) {
+			// No worker-specific file - return base config
+			return baseConfig;
+		}
+
+		System.out.println("[Worker Config] Loading parameters from: " + workerParamFile);
+
+		// Create a deep copy of base config
+		Config workerConfig = baseConfig.copy();
+
+		// Create temporary InputParameters instance to reuse parsing logic
+		InputParameters tempParams = new InputParameters();
+		tempParams.config = workerConfig;
+		tempParams.initializeParameterSources();
+
+		// Load worker-specific parameters
+		try (BufferedReader reader = new BufferedReader(new FileReader(paramFile))) {
+			String line;
+			int lineNumber = 0;
+
+			while ((line = reader.readLine()) != null) {
+				lineNumber++;
+				line = line.trim();
+
+				// Skip empty lines and comments
+				if (line.isEmpty() || line.startsWith("#")) {
+					continue;
+				}
+
+				// Parse key=value
+				String[] parts = line.split("=", 2);
+				if (parts.length != 2) {
+					System.err.println("Warning: Invalid format at line " + lineNumber + ": " + line);
+					continue;
+				}
+
+				String key = parts[0].trim();
+				String value = parts[1].trim();
+
+				// Apply parameter override
+				tempParams.applyParameter(key, value, workerParamFile);
+			}
+		} catch (IOException e) {
+			System.err.println("Warning: Error reading " + workerParamFile + ": " + e.getMessage());
+			return baseConfig;
+		}
+
+		return workerConfig;
 	}
 
 }

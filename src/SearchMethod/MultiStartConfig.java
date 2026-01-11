@@ -110,4 +110,18 @@ public class MultiStartConfig {
             numWorkerThreads, minEliteSizeForWorkers,
             stagnationThreshold, competitiveThreshold * 100, notifyMainThread);
     }
+
+    /**
+     * Create a deep copy of this configuration
+     */
+    public MultiStartConfig copy() {
+        MultiStartConfig copied = new MultiStartConfig();
+        copied.enabled = this.enabled;
+        copied.numWorkerThreads = this.numWorkerThreads;
+        copied.minEliteSizeForWorkers = this.minEliteSizeForWorkers;
+        copied.stagnationThreshold = this.stagnationThreshold;
+        copied.competitiveThreshold = this.competitiveThreshold;
+        copied.notifyMainThread = this.notifyMainThread;
+        return copied;
+    }
 }

@@ -28,7 +28,6 @@ varphi=40
 
 # Perturbation operators (destroy methods) - comma-separated
 # Available: Sequential, Concentric, SISR, RouteRemoval, CriticalRemoval, RandomRemoval
-# perturbation=Sequential,Concentric,SISR,RouteRemoval,CriticalRemoval,RandomRemoval
 perturbation=Sequential,Concentric,RouteRemoval,RandomRemoval
 
 
@@ -134,7 +133,7 @@ aos.scoreRejected=0.0
 
 # Enable/disable Path Relinking parallel thread
 # Path Relinking intensifies search by exploring trajectories between elite solutions
-pr.enabled=true
+pr.enabled=false
 
 # Delay before starting PR thread (number of AILS iterations)
 # Allows elite set to populate with diverse solutions first
@@ -182,7 +181,7 @@ multiStart.minEliteSizeForWorkers=6
 #   2. Worker's best solution is >competitiveThreshold% worse than global best
 # If worker is competitive with global best, it keeps running (intensifying)
 # Recommended: 500-1000 iterations for aggressive restart
-multiStart.stagnationThreshold=4000
+multiStart.stagnationThreshold=7000
 
 # Competitive threshold (percentage gap from global best)
 # Worker is competitive if within this % of global best
@@ -197,3 +196,17 @@ multiStart.competitiveThreshold=0.001
 # CRITICAL: Enable this to prevent best solutions from being lost
 # When disabled, worker discoveries don't propagate to main thread
 multiStart.notifyMainThread=false
+
+# ============================================================
+# Pattern Injection Perturbation Parameters
+# ============================================================
+
+# Minimum number of patterns to inject (early search, high exploration)
+# Used when ideal distance is high (early iterations)
+# Recommended: 1 for conservative injection
+patternInjectionMinPatterns=1
+
+# Maximum number of patterns to inject (late search, high exploitation)
+# Used when ideal distance is low (late iterations)
+# Recommended: 3-5 for aggressive pattern reinforcement
+patternInjectionMaxPatterns=5

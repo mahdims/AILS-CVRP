@@ -21,6 +21,7 @@ import Perturbation.InsertionHeuristic;
 import Perturbation.Perturbation;
 import Perturbation.SISR;
 import Perturbation.CriticalRemoval;
+import Perturbation.PatternInjection;
 import Solution.Solution;
 import Solution.Node;
 import PathRelinking.PathRelinkingThread;
@@ -201,6 +202,10 @@ public class AILSII implements Runnable {
 					// CriticalRemoval needs ailsInstance for removal tracking
 					this.pertubOperators[i] = new CriticalRemoval(
 							instance, config, omegaSetup, intraLocalSearch, this);
+				} else if (operatorName.equals("PatternInjection")) {
+					// PatternInjection needs ailsInstance for elite set and ideal distance
+					this.pertubOperators[i] = new PatternInjection(
+							instance, config, omegaSetup, intraLocalSearch, this);
 				} else {
 					// Standard operators via reflection (now with ailsInstance parameter)
 					this.pertubOperators[i] = (Perturbation) Class.forName("Perturbation." + operatorName)
@@ -345,6 +350,10 @@ public class AILSII implements Runnable {
 				String operatorName = config.getPerturbation()[i] + "";
 				if (operatorName.equals("CriticalRemoval")) {
 					this.pertubOperators[i] = new CriticalRemoval(
+							instance, config, omegaSetup, intraLocalSearch, this);
+				} else if (operatorName.equals("PatternInjection")) {
+					// PatternInjection needs ailsInstance for elite set and ideal distance
+					this.pertubOperators[i] = new PatternInjection(
 							instance, config, omegaSetup, intraLocalSearch, this);
 				} else {
 					this.pertubOperators[i] = (Perturbation) Class.forName("Perturbation." + operatorName)
@@ -1052,6 +1061,10 @@ public class AILSII implements Runnable {
 
 	public EliteSet getEliteSet() {
 		return eliteSet;
+	}
+
+	public IdealDist getIdealDist() {
+		return idealDist;
 	}
 
 	public double getBestF() {

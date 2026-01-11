@@ -36,6 +36,10 @@ public class Config implements Cloneable {
 	int stringFrequencyLoggingInterval; // Log every N iterations
 	int stringFrequencyLoggingTopK; // Number of top strings to log
 
+	// --------------------Pattern Injection Perturbation-------------------
+	int patternInjectionMinPatterns;  // Minimum patterns to inject (early search)
+	int patternInjectionMaxPatterns;  // Maximum patterns to inject (late search)
+
 	// --------------------Adaptive Operator Selection-------------------
 	boolean aosEnabled;
 	boolean aosDecoupled; // Decoupled destroy-repair selection (recommended by Pisinger & Ropke 2019)
@@ -91,6 +95,9 @@ public class Config implements Cloneable {
 		this.stringFrequencyLoggingInterval = 100;
 		this.stringFrequencyLoggingTopK = 300;
 
+		this.patternInjectionMinPatterns = 1;
+		this.patternInjectionMaxPatterns = 5;
+
 		this.aosEnabled = true;
 		this.aosDecoupled = true; // Decoupled destroy-repair selection (Pisinger & Ropke 2019)
 		this.aosSegmentLength = 20;
@@ -115,6 +122,67 @@ public class Config implements Cloneable {
 			e.printStackTrace();
 		}
 		return null;
+	}
+
+	/**
+	 * Create a deep copy of this configuration
+	 * Properly copies arrays and nested objects (unlike clone())
+	 */
+	public Config copy() {
+		Config copied = new Config();
+
+		// Copy primitive and wrapper types
+		copied.etaMin = this.etaMin;
+		copied.etaMax = this.etaMax;
+		copied.dMin = this.dMin;
+		copied.dMax = this.dMax;
+		copied.gamma = this.gamma;
+		copied.varphi = this.varphi;
+		copied.epsilon = this.epsilon;
+		copied.knnLimit = this.knnLimit;
+		copied.stoppingCriterionType = this.stoppingCriterionType;
+		copied.fleetMinimizationRate = this.fleetMinimizationRate;
+		copied.fleetMinimizationMaxIter = this.fleetMinimizationMaxIter;
+		copied.eliteSetSize = this.eliteSetSize;
+		copied.eliteSetBeta = this.eliteSetBeta;
+		copied.eliteSetMinDiversity = this.eliteSetMinDiversity;
+		copied.stringLength = this.stringLength;
+		copied.stringFrequencyLoggingEnabled = this.stringFrequencyLoggingEnabled;
+		copied.stringFrequencyLoggingInterval = this.stringFrequencyLoggingInterval;
+		copied.stringFrequencyLoggingTopK = this.stringFrequencyLoggingTopK;
+		copied.patternInjectionMinPatterns = this.patternInjectionMinPatterns;
+		copied.patternInjectionMaxPatterns = this.patternInjectionMaxPatterns;
+		copied.aosEnabled = this.aosEnabled;
+		copied.aosDecoupled = this.aosDecoupled;
+		copied.aosSegmentLength = this.aosSegmentLength;
+		copied.aosReactionFactor = this.aosReactionFactor;
+		copied.aosMinProbability = this.aosMinProbability;
+		copied.aosScoreGlobalBest = this.aosScoreGlobalBest;
+		copied.aosScoreImproved = this.aosScoreImproved;
+		copied.aosScoreAccepted = this.aosScoreAccepted;
+		copied.aosScoreRejected = this.aosScoreRejected;
+		copied.warmStartEnabled = this.warmStartEnabled;
+
+		// Deep copy arrays
+		if (this.perturbation != null) {
+			copied.perturbation = Arrays.copyOf(this.perturbation, this.perturbation.length);
+		}
+		if (this.insertionHeuristics != null) {
+			copied.insertionHeuristics = Arrays.copyOf(this.insertionHeuristics, this.insertionHeuristics.length);
+		}
+
+		// Deep copy nested objects
+		if (this.sisrConfig != null) {
+			copied.sisrConfig = this.sisrConfig.copy();
+		}
+		if (this.prConfig != null) {
+			copied.prConfig = this.prConfig.copy();
+		}
+		if (this.msConfig != null) {
+			copied.msConfig = this.msConfig.copy();
+		}
+
+		return copied;
 	}
 
 	@Override
@@ -378,6 +446,22 @@ public class Config implements Cloneable {
 
 	public void setStringFrequencyLoggingTopK(int stringFrequencyLoggingTopK) {
 		this.stringFrequencyLoggingTopK = stringFrequencyLoggingTopK;
+	}
+
+	public int getPatternInjectionMinPatterns() {
+		return patternInjectionMinPatterns;
+	}
+
+	public void setPatternInjectionMinPatterns(int patternInjectionMinPatterns) {
+		this.patternInjectionMinPatterns = patternInjectionMinPatterns;
+	}
+
+	public int getPatternInjectionMaxPatterns() {
+		return patternInjectionMaxPatterns;
+	}
+
+	public void setPatternInjectionMaxPatterns(int patternInjectionMaxPatterns) {
+		this.patternInjectionMaxPatterns = patternInjectionMaxPatterns;
 	}
 
 	public boolean isAosEnabled() {

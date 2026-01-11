@@ -3,7 +3,9 @@ package Perturbation;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Map;
 
 import Data.Instance;
 import DiversityControl.OmegaAdjustment;
@@ -11,68 +13,81 @@ import Improvement.IntraLocalSearch;
 import SearchMethod.Config;
 import Solution.Node;
 import Solution.Solution;
+import EliteSet.EliteSet;
 
 /**
- * Critical Removal Perturbation Operator
+ * Critical Removal Perturbation Operator (Pattern-Based)
  *
- * History-based operator that targets customers frequently removed during search.
- * These "unstable" customers are on the boundary between multiple good placements.
- * Removing all unstable customers at once forces global rearrangement.
+ * Uses string frequency analysis to identify and remove "critical" customers that appear
+ * predominantly in low-frequency (rare) patterns. These customers are likely in suboptimal
+ * configurations that prevent the search from finding better solutions.
+ *
+ * PHILOSOPHY:
+ * -----------
+ * Inverse of Pattern Injection:
+ * - Pattern Injection: Reinforces HIGH-frequency patterns (successful structures)
+ * - Critical Removal: Disrupts LOW-frequency patterns (unsuccessful structures)
  *
  * MOTIVATION:
  * -----------
- * When a customer is repeatedly removed and reinserted by different operators,
- * it indicates the customer is "unstable" - the search cannot definitively decide
- * where it should be placed. This happens when:
- * - Customer is equidistant from multiple service regions
- * - Customer demand creates capacity trade-offs between routes
- * - Customer is on the boundary of optimal sectoring
+ * In a mature elite set, high-frequency patterns represent successful structural components.
+ * Customers that appear primarily in LOW-frequency patterns are:
+ * 1. In unusual/rare configurations that don't generalize well
+ * 2. Potentially blocking better placements
+ * 3. Not part of the "consensus" structure emerging in the elite set
  *
- * By removing ALL unstable customers simultaneously, this operator forces the
- * algorithm to rethink the entire structure rather than making incremental changes.
+ * Removing these customers forces the search to reconsider their placement.
  *
- * MECHANISM:
- * ----------
- * 1. Track removal count for each customer across all operator applications
- * 2. Apply periodic decay (95% retention every 1000 iterations) to:
- *    - Prevent unbounded growth
- *    - Give more weight to recent patterns
- *    - Adapt to changing search phases
- * 3. Identify customers with removal counts > 1.5 * average
- * 4. Remove omega highest-frequency customers
- * 5. Do NOT record own removals (prevents self-reinforcement)
- *
- * COLD START PROTECTION:
- * ----------------------
- * Requires minimum 500 iterations before activating history-based selection.
- * Before this threshold, falls back to random removal to build initial statistics.
- *
- * FALLBACK MECHANISM:
+ * DYNAMIC ACTIVATION:
  * -------------------
- * If insufficient high-frequency customers exist (< omega), uses relative ranking:
- * - Sort all customers by removal count (descending)
- * - Take top omega customers
- * This ensures the operator is always productive even in early search phases.
+ * Operator mode depends on string frequency maturity (checked EVERY call):
+ * - IMMATURE: Random removal (fallback mode)
+ * - MATURE: Pattern-based disruption (active mode)
  *
- * SELF-REINFORCEMENT PREVENTION:
- * ------------------------------
- * Overrides recordCandidates() to be empty, ensuring CriticalRemoval's own
- * removals are NOT tracked. This prevents a positive feedback loop where
- * frequently removed customers become even more likely to be removed.
+ * Maturity criteria (ALL must hold - adaptive to instance size):
+ * 1. Elite set ≥75% full (statistical significance)
+ * 2. Coefficient of Variation ≥0.40 (structured distribution, not flat noise)
+ *    - Min unique patterns: adaptive (200 for small, 1000 for 10k nodes)
+ * 3. Top pattern concentration ≥30% (appears in 30%+ of elite solutions)
+ * 4. Coverage: adaptive threshold based on instance size
+ *    - Small (100 nodes): 30% with top 50 patterns
+ *    - Medium (1000 nodes): 25% with top 100 patterns
+ *    - Large (10k nodes): 15% with top 1000 patterns
  *
- * Key features:
- * - Tracks removal frequency per customer
- * - Applies periodic decay (0.95 every 1000 iterations)
- * - Cold start protection (requires 500 iterations minimum)
- * - Falls back to ranking if insufficient high-frequency customers
- * - Prevents self-reinforcement by not recording own removals
+ * If ANY criterion fails, operator automatically deactivates and uses random removal.
+ * This ensures robustness: operator never uses unreliable pattern data.
+ *
+ * MECHANISM (Pattern-Based Mode):
+ * --------------------------------
+ * 1. Compute median string frequency across all patterns
+ * 2. For each customer, count appearances in:
+ *    - Frequent patterns (frequency ≥ median)
+ *    - Rare patterns (frequency < median)
+ * 3. Calculate criticality score: rare_count / (frequent_count + 1)
+ *    - High score = appears mostly in rare patterns (critical)
+ *    - Low score = appears mostly in frequent patterns (stable)
+ * 4. Select omega customers with highest criticality scores
+ * 5. Remove and reinsert using standard insertion heuristics
+ *
+ * PERFORMANCE:
+ * ------------
+ * Optimized for speed (all operations are O(n) where n is reasonable):
+ * - Elite set queries: O(1) cached results
+ * - Pattern analysis: O(k*m) where k=1000 patterns, m=3 pattern length → ~3000 ops
+ * - Customer scoring: O(n) where n=number of customers
+ * - Total: O(k) ~ linear in pattern count, still very fast (<1ms)
+ *
+ * COMPLEMENTARITY WITH PATTERN INJECTION:
+ * ----------------------------------------
+ * These operators work in tandem:
+ * - Pattern Injection: Assembles successful patterns into solutions
+ * - Critical Removal: Disrupts unsuccessful patterns to explore new structures
+ *
+ * Together they create a push-pull dynamic that reinforces good patterns while
+ * disrupting bad ones.
  */
 public class CriticalRemoval extends Perturbation
 {
-	// Array to track removal counts for each customer
-	// Maintained by AILSII across all operator invocations
-	private int[] removalCounts;
-
 	/**
 	 * Constructor for CriticalRemoval operator.
 	 *
@@ -80,7 +95,7 @@ public class CriticalRemoval extends Perturbation
 	 * @param config Configuration parameters
 	 * @param omegaSetup Omega adjustment setup for adaptive perturbation strength
 	 * @param intraLocalSearch Intra-route local search operator
-	 * @param ailsInstance Reference to AILSII for accessing removal tracking
+	 * @param ailsInstance Reference to AILSII for accessing elite set
 	 */
 	public CriticalRemoval(Instance instance, Config config,
 		HashMap<String, OmegaAdjustment> omegaSetup,
@@ -89,26 +104,16 @@ public class CriticalRemoval extends Perturbation
 	{
 		super(instance, config, omegaSetup, intraLocalSearch, ailsInstance);
 		this.perturbationType = PerturbationType.CriticalRemoval;
-
-		// Get reference to shared removal counts array from AILSII
-		this.removalCounts = ailsInstance.getCustomerRemovalCounts();
 	}
 
 	/**
 	 * Apply CriticalRemoval perturbation to solution.
 	 *
 	 * ALGORITHM:
-	 * 1. Check if sufficient history exists (>= 500 iterations)
-	 * 2. Calculate average removal count across current solution customers
-	 * 3. Set threshold = 1.5 * average (identifies high-frequency customers)
-	 * 4. Collect customers above threshold
-	 * 5. If sufficient high-frequency customers exist:
-	 *    - Randomly select omega from high-frequency set
-	 * 6. Otherwise (insufficient high-frequency):
-	 *    - Rank all customers by removal count
-	 *    - Select top omega customers
-	 * 7. Remove selected customers
-	 * 8. Reinsert using inherited insertion heuristic
+	 * 1. Check if string frequency data is mature (dynamic activation)
+	 * 2. If IMMATURE: use random removal (fallback)
+	 * 3. If MATURE: identify critical customers using pattern analysis
+	 * 4. Remove critical customers and reinsert using standard heuristics
 	 *
 	 * @param s Solution to perturb
 	 */
@@ -117,17 +122,16 @@ public class CriticalRemoval extends Perturbation
 	{
 		setSolution(s);
 
-		// ========== COLD START PROTECTION ==========
-		// Require minimum 500 iterations to build meaningful statistics
-		if (ailsInstance.getIterator() < 500) {
-			// Insufficient history - use random removal
+		EliteSet eliteSet = ailsInstance.getEliteSet();
 
-			// Diagnostic logging (every 100 iterations)
-			if (ailsInstance.getIterator() % 100 == 0) {
-				System.out.printf("[CriticalRemoval] iter:%d | mode:cold_start_fallback%n",
+		// ========== DYNAMIC ACTIVATION CHECK ==========
+		// Check maturity EVERY call (allows deactivation if conditions degrade)
+		if (!isStringFrequencyMature(eliteSet)) {
+			// Fallback mode: Random removal
+			if (ailsInstance.getIterator() % 500 == 0) {
+				System.out.printf("[CriticalRemoval] iter:%d | mode:random_fallback (frequencies immature)%n",
 					ailsInstance.getIterator());
 			}
-
 			removeRandomCustomers();
 			setOrder();
 			addCandidates();
@@ -135,19 +139,11 @@ public class CriticalRemoval extends Perturbation
 			return;
 		}
 
-		// ========== CALCULATE STATISTICS ==========
-		// Compute average removal count for customers in current solution
-		double sum = 0;
-		int count = 0;
-		for (int i = 0; i < size; i++) {
-			if (solution[i].nodeBelong) {
-				sum += removalCounts[solution[i].name];
-				count++;
-			}
-		}
+		// ========== PATTERN-BASED DISRUPTION MODE ==========
+		List<Integer> criticalCustomers = selectCriticalCustomers(eliteSet, (int)omega);
 
-		// Safety check: if no customers in solution, fall back to random
-		if (count == 0) {
+		if (criticalCustomers.isEmpty()) {
+			// Safety fallback (shouldn't happen if mature)
 			removeRandomCustomers();
 			setOrder();
 			addCandidates();
@@ -155,112 +151,261 @@ public class CriticalRemoval extends Perturbation
 			return;
 		}
 
-		double avgCount = sum / count;
-		// Threshold = 1.5 * average (identifies customers significantly above average)
-		double threshold = avgCount * 1.5;
-
-		// ========== COLLECT HIGH-FREQUENCY CUSTOMERS ==========
-		// Find customers with removal count above threshold
-		List<Node> highFreqCustomers = new ArrayList<>();
-		for (int i = 0; i < size; i++) {
-			if (solution[i].nodeBelong &&
-				removalCounts[solution[i].name] > threshold) {
-				highFreqCustomers.add(solution[i]);
-			}
+		// Diagnostic logging (every 500 iterations)
+		if (ailsInstance.getIterator() % 500 == 0) {
+			System.out.printf("[CriticalRemoval] iter:%d | mode:pattern_disruption critical:%d omega:%d%n",
+				ailsInstance.getIterator(), criticalCustomers.size(), (int)omega);
 		}
 
-		// ========== REMOVAL STRATEGY ==========
-		if (highFreqCustomers.size() >= (int)omega) {
-			// CASE 1: Sufficient high-frequency customers
+		// Remove critical customers from current solution
+		removeCustomers(criticalCustomers);
 
-			// Diagnostic logging (every 500 iterations)
-			if (ailsInstance.getIterator() % 500 == 0) {
-				System.out.printf("[CriticalRemoval] iter:%d | mode:threshold avgCount:%.1f threshold:%.1f highFreqCandidates:%d omega:%d%n",
-					ailsInstance.getIterator(), avgCount, threshold, highFreqCustomers.size(), (int)omega);
-			}
-
-			// Randomly select omega from high-frequency set to avoid determinism
-			Collections.shuffle(highFreqCustomers, rand);
-			for (int i = 0; i < (int)omega; i++) {
-				Node node = highFreqCustomers.get(i);
-				candidates[countCandidates++] = node;
-
-				// Store old position for potential restoration
-				node.prevOld = node.prev;
-				node.nextOld = node.next;
-
-				// Remove from current route
-				f += node.route.remove(node);
-			}
-		} else {
-			// CASE 2: Insufficient high-frequency customers
-			// Use relative ranking to ensure omega removals
-
-			// Diagnostic logging (every 500 iterations)
-			if (ailsInstance.getIterator() % 500 == 0) {
-				System.out.printf("[CriticalRemoval] iter:%d | mode:ranking avgCount:%.1f threshold:%.1f highFreqCandidates:%d (< omega:%d)%n",
-					ailsInstance.getIterator(), avgCount, threshold, highFreqCustomers.size(), (int)omega);
-			}
-
-			// Collect all customers from current solution
-			List<Node> allCustomers = new ArrayList<>();
-			for (int i = 0; i < size; i++) {
-				if (solution[i].nodeBelong) {
-					allCustomers.add(solution[i]);
-				}
-			}
-
-			// Sort by removal count (descending order - highest first)
-			allCustomers.sort((a, b) ->
-				removalCounts[b.name] - removalCounts[a.name]);
-
-			// Take top omega customers by removal count
-			for (int i = 0; i < Math.min((int)omega, allCustomers.size()); i++) {
-				Node node = allCustomers.get(i);
-				candidates[countCandidates++] = node;
-
-				// Store old position for potential restoration
-				node.prevOld = node.prev;
-				node.nextOld = node.next;
-
-				// Remove from current route
-				f += node.route.remove(node);
-			}
-		}
-
-		// ========== REINSERTION ==========
-		// Randomize insertion order to avoid bias
+		// Reinsert using standard insertion heuristics
 		setOrder();
-
-		// Reinsert removed customers using inherited insertion heuristic
-		// (Distance-based or Cost-based, selected by setSolution)
 		addCandidates();
 
-		// Update solution with new routes and objective value
+		// Update solution
 		assignSolution(s);
 	}
 
 	/**
-	 * Fallback method: remove random customers.
-	 * Used when insufficient history exists or in edge cases.
+	 * Check if string frequency data is mature enough for pattern-based operations.
 	 *
-	 * Ensures the operator is always productive even without historical data.
+	 * PERFORMANCE: O(n) where n ~ 1000 (pattern sample) → fast, ~microseconds
+	 *
+	 * CRITERIA (all must hold - adaptive to instance size):
+	 * 1. Elite set ≥75% full
+	 * 2. Coefficient of Variation ≥0.40 (structured, not flat)
+	 *    - Min unique patterns: max(200, size/5) up to 1000
+	 * 3. Top pattern concentration ≥30%
+	 * 4. Coverage: adaptive threshold (30% for small → 15% for large instances)
+	 *    - Sample size: max(50, size/10) up to 1000 patterns
+	 *
+	 * @param eliteSet Elite set containing string frequencies
+	 * @return true if frequencies are mature and reliable
 	 */
-	private void removeRandomCustomers() {
-		// Remove omega random customers from solution
-		while (countCandidates < (int)omega && countCandidates < size) {
-			// Select random customer
-			node = solution[rand.nextInt(size)];
+	private boolean isStringFrequencyMature(EliteSet eliteSet)
+	{
+		int iter = ailsInstance.getIterator();
+		boolean logDiagnostics = (iter % 2000 == 0);  // Log every 2000 iterations
 
-			// Ensure customer is in solution (nodeBelong = true)
-			while (!node.nodeBelong) {
-				node = solution[rand.nextInt(size)];
+		// ========== CRITERION 1: Elite Set Population ==========
+		int eliteSize = eliteSet.size();
+		int maxEliteSize = config.getEliteSetSize();
+		double eliteFillRatio = (double) eliteSize / maxEliteSize;
+
+		if (eliteFillRatio < 0.75) {  // Need at least 75% full (9/12 solutions)
+			if (logDiagnostics) {
+				System.out.printf("[CriticalRemoval-Trigger] iter:%d FAILED criterion 1: eliteFill=%.2f < 0.75%n",
+					iter, eliteFillRatio);
 			}
+			return false;
+		}
 
-			// Add to removal candidates
+		// ========== CRITERION 2: Frequency Distribution Structure ==========
+		// Get wider sample of patterns for analysis (include both high and low frequency)
+		// CRITICAL: Must include rare patterns to get meaningful CV
+		List<EliteSet.StringFrequency> topStrings = eliteSet.getTopFrequentStrings(1000);
+
+		// Adaptive minimum diversity threshold based on instance size
+		// Small (100 nodes): 200, Medium (1000 nodes): 200, Large (10000 nodes): 1000
+		int minUniquePatterns = Math.min(1000, Math.max(200, size / 5));
+
+		if (topStrings.size() < minUniquePatterns) {  // Need minimum diversity
+			if (logDiagnostics) {
+				System.out.printf("[CriticalRemoval-Trigger] iter:%d FAILED criterion 2a: uniquePatterns=%d < %d%n",
+					iter, topStrings.size(), minUniquePatterns);
+			}
+			return false;
+		}
+
+		// Calculate coefficient of variation (CV = stddev / mean)
+		// High CV → structured distribution (some patterns dominant)
+		// Low CV → flat distribution (all patterns similar frequency)
+		double sum = 0;
+		for (EliteSet.StringFrequency sf : topStrings) {
+			sum += sf.frequency;
+		}
+		double mean = sum / topStrings.size();
+
+		double varianceSum = 0;
+		for (EliteSet.StringFrequency sf : topStrings) {
+			double diff = sf.frequency - mean;
+			varianceSum += diff * diff;
+		}
+		double variance = varianceSum / topStrings.size();
+		double stdDev = Math.sqrt(variance);
+
+		double coefficientOfVariation = stdDev / mean;
+
+		if (coefficientOfVariation < 0.40) {  // Too flat, not structured
+			if (logDiagnostics) {
+				System.out.printf("[CriticalRemoval-Trigger] iter:%d FAILED criterion 2b: CV=%.3f < 0.40 (mean=%.1f, std=%.1f, topFreq=%d)%n",
+					iter, coefficientOfVariation, mean, stdDev,
+					topStrings.isEmpty() ? 0 : topStrings.get(0).frequency);
+			}
+			return false;
+		}
+
+		// ========== CRITERION 3: Top Pattern Concentration ==========
+		// Top pattern should appear in significant fraction of elite solutions
+		if (topStrings.isEmpty()) {
+			return false;
+		}
+
+		int topFrequency = topStrings.get(0).frequency;
+		double topConcentration = (double) topFrequency / eliteSize;
+
+		if (topConcentration < 0.3) {  // Top pattern must appear in 30%+ of elite
+			if (logDiagnostics) {
+				System.out.printf("[CriticalRemoval-Trigger] iter:%d FAILED criterion 3: topConc=%.3f < 0.30 (topFreq=%d, eliteSize=%d)%n",
+					iter, topConcentration, topFrequency, eliteSize);
+			}
+			return false;
+		}
+
+		// ========== CRITERION 4: Customer Coverage ==========
+		// Top patterns should cover meaningful portion of problem
+		// Adaptive thresholds based on instance size
+		Set<Integer> coveredCustomers = new HashSet<>();
+
+		// Adaptive coverage sample size: scales with instance size
+		// Small (100 nodes): 50 patterns, Medium (1000 nodes): 100, Large (10000 nodes): 1000
+		int topN = Math.min(1000, Math.max(50, size / 10));
+		topN = Math.min(topN, topStrings.size());
+
+		for (int i = 0; i < topN; i++) {
+			List<Integer> pattern = topStrings.get(i).toNodeList();
+			for (Integer customer : pattern) {
+				if (customer != 0) {  // Skip depot
+					coveredCustomers.add(customer);
+				}
+			}
+		}
+
+		double coverageRatio = (double) coveredCustomers.size() / size;
+
+		// Adaptive coverage threshold: decreases for larger instances
+		// Small (100 nodes): 30%, Medium (1000 nodes): 25%, Large (10000 nodes): 15%
+		double coverageThreshold = Math.max(0.15, 0.30 - (size / 10000.0) * 0.15);
+
+		if (coverageRatio < coverageThreshold) {
+			if (logDiagnostics) {
+				System.out.printf("[CriticalRemoval-Trigger] iter:%d FAILED criterion 4: coverage=%.3f < %.3f (covered=%d/%d, topN=%d)%n",
+					iter, coverageRatio, coverageThreshold, coveredCustomers.size(), size, topN);
+			}
+			return false;
+		}
+
+		// ========== ALL CRITERIA MET ==========
+		if (logDiagnostics) {
+			System.out.printf("[CriticalRemoval-Trigger] iter:%d SUCCESS! All criteria met: eliteFill=%.2f CV=%.3f topConc=%.3f coverage=%.3f%n",
+				iter, eliteFillRatio, coefficientOfVariation, topConcentration, coverageRatio);
+		}
+		return true;
+	}
+
+	/**
+	 * Select critical customers using pattern frequency analysis.
+	 *
+	 * STRATEGY:
+	 * 1. Calculate median string frequency (threshold for rare vs frequent)
+	 * 2. For each customer, count appearances in rare vs frequent patterns
+	 * 3. Criticality score = rare_count / (frequent_count + 1)
+	 * 4. Select omega customers with highest criticality
+	 *
+	 * PERFORMANCE: O(k*m + n) where k=100 patterns, m=3 length, n=customers → ~500 ops
+	 *
+	 * @param eliteSet Elite set containing string frequencies
+	 * @param targetCount Number of critical customers to select (omega)
+	 * @return List of customer IDs (1-indexed) to remove
+	 */
+	private List<Integer> selectCriticalCustomers(EliteSet eliteSet, int targetCount)
+	{
+		// Get broad sample of patterns for analysis (include rare patterns!)
+		// Use large sample to ensure we capture low-frequency patterns
+		List<EliteSet.StringFrequency> allPatterns = eliteSet.getTopFrequentStrings(1000);
+
+		if (allPatterns.isEmpty()) {
+			return new ArrayList<>();
+		}
+
+		// Calculate median frequency (threshold for rare vs frequent)
+		List<Integer> frequencies = new ArrayList<>();
+		for (EliteSet.StringFrequency sf : allPatterns) {
+			frequencies.add(sf.frequency);
+		}
+		frequencies.sort(Integer::compareTo);
+		int medianFreq = frequencies.get(frequencies.size() / 2);
+
+		// Count customer appearances in rare vs frequent patterns
+		Map<Integer, Integer> rareCount = new HashMap<>();
+		Map<Integer, Integer> frequentCount = new HashMap<>();
+
+		for (EliteSet.StringFrequency sf : allPatterns) {
+			List<Integer> pattern = sf.toNodeList();
+			boolean isFrequent = sf.frequency >= medianFreq;
+
+			for (Integer customer : pattern) {
+				if (customer == 0) continue;  // Skip depot
+
+				if (isFrequent) {
+					frequentCount.merge(customer, 1, Integer::sum);
+				} else {
+					rareCount.merge(customer, 1, Integer::sum);
+				}
+			}
+		}
+
+		// Calculate criticality scores
+		// High score = appears mostly in rare patterns (bad)
+		// Low score = appears mostly in frequent patterns (good)
+		List<CustomerScore> scores = new ArrayList<>();
+
+		for (Map.Entry<Integer, Integer> entry : rareCount.entrySet()) {
+			int customer = entry.getKey();
+			int rare = entry.getValue();
+			int frequent = frequentCount.getOrDefault(customer, 0);
+
+			// Criticality = rare / (frequent + 1)
+			// +1 prevents division by zero and penalizes customers with no frequent appearances
+			double criticality = (double) rare / (frequent + 1);
+
+			scores.add(new CustomerScore(customer, criticality));
+		}
+
+		// Select top omega critical customers
+		scores.sort((a, b) -> Double.compare(b.score, a.score));  // Descending order
+
+		List<Integer> result = new ArrayList<>();
+		int limit = Math.min(targetCount, scores.size());
+		for (int i = 0; i < limit; i++) {
+			result.add(scores.get(i).customerId);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Remove specified customers from current solution.
+	 *
+	 * @param customerIds List of customer IDs (1-indexed) to remove
+	 */
+	private void removeCustomers(List<Integer> customerIds)
+	{
+		for (Integer customerId : customerIds) {
+			if (countCandidates >= (int)omega) break;
+
+			// customerId is 1-indexed, solution array is 0-indexed
+			if (customerId < 1 || customerId > size) continue;
+
+			Node node = solution[customerId - 1];
+
+			if (!node.nodeBelong) continue;  // Already removed
+
 			candidates[countCandidates++] = node;
 
-			// Store old position
+			// Store old position for potential restoration
 			node.prevOld = node.prev;
 			node.nextOld = node.next;
 
@@ -270,24 +415,49 @@ public class CriticalRemoval extends Perturbation
 	}
 
 	/**
+	 * Fallback: Remove random customers.
+	 * Used when string frequency data is immature or unavailable.
+	 */
+	private void removeRandomCustomers()
+	{
+		while (countCandidates < (int)omega && countCandidates < size) {
+			node = solution[rand.nextInt(size)];
+
+			while (!node.nodeBelong) {
+				node = solution[rand.nextInt(size)];
+			}
+
+			candidates[countCandidates++] = node;
+
+			node.prevOld = node.prev;
+			node.nextOld = node.next;
+
+			f += node.route.remove(node);
+		}
+	}
+
+	/**
 	 * Override to prevent self-reinforcement.
 	 *
-	 * CRITICAL: CriticalRemoval does NOT record its own removals.
-	 *
-	 * WHY: If CriticalRemoval recorded its own removals, it would create a
-	 * positive feedback loop:
-	 * 1. CriticalRemoval identifies customer X as frequently removed
-	 * 2. CriticalRemoval removes customer X
-	 * 3. Customer X's removal count increases
-	 * 4. Next time, customer X is even more likely to be removed
-	 * 5. Loop continues, causing excessive removal of same customers
-	 *
-	 * By NOT recording, CriticalRemoval only targets customers removed by
-	 * OTHER operators, maintaining objectivity in its selection criteria.
+	 * CriticalRemoval does NOT record its own removals since it uses
+	 * pattern-based selection rather than historical removal tracking.
+	 * This prevents any potential feedback loops.
 	 */
 	@Override
 	protected void recordCandidates() {
-		// Intentionally empty - do not track CriticalRemoval's own removals
-		// This prevents self-reinforcement and maintains operator independence
+		// Intentionally empty - pattern-based operator doesn't use removal tracking
+	}
+
+	/**
+	 * Helper class for customer criticality scoring.
+	 */
+	private static class CustomerScore {
+		final int customerId;
+		final double score;
+
+		CustomerScore(int customerId, double score) {
+			this.customerId = customerId;
+			this.score = score;
+		}
 	}
 }

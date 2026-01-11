@@ -1,0 +1,24 @@
+# AILS-II Worker 1 Parameters - Greedy Distance-Based Strategy
+#
+# Strategy: Fast exploitation with structure-preserving perturbations
+#
+# This file contains ONLY worker-specific parameter overrides.
+# All shared parameters (elite set, PR, multi-start, etc.) are inherited from parameters.txt
+
+# ============================================================
+# Worker 1 Specific Overrides
+# ============================================================
+
+# Perturbation strength - SMALLER for local search
+dMin=10
+dMax=30
+
+# Perturbation operators - Structure-preserving only
+perturbation=Sequential,Concentric,SISR
+
+# Insertion heuristics - Greedy only
+insertionHeuristics=Distance,Cost
+
+# AOS parameters - Faster adaptation
+aos.segmentLength=60
+aos.reactionFactor=0.2

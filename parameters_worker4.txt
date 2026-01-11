@@ -1,0 +1,23 @@
+# AILS-II Worker 4 Parameters - Pattern-Intensive Strategy
+#
+# Strategy: Heavy pattern injection with longer AOS segments
+#
+# This file contains ONLY worker-specific parameter overrides.
+# All shared parameters (elite set, PR, multi-start, etc.) are inherited from parameters.txt
+
+# ============================================================
+# Worker 4 Specific Overrides
+# ============================================================
+
+# Perturbation operators - Pattern-focused
+perturbation=PatternInjection,Sequential,CriticalRemoval
+
+# Insertion heuristics - Quality-focused
+insertionHeuristics=Cost,Distance
+
+# AOS - Longer segments for stable pattern learning
+aos.segmentLength=90
+
+# Pattern injection - More aggressive
+patternInjectionMinPatterns=3
+patternInjectionMaxPatterns=7

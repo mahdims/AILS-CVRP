@@ -194,11 +194,16 @@ public class MultiStartAILS implements Runnable {
                 continue;
             }
 
+            // Load worker-specific configuration (falls back to base config if no worker file exists)
+            int workerIndex = i + 1; // Worker 1, 2, 3, 4...
+            String workerParamFile = "parameters_worker" + workerIndex + ".txt";
+            Config workerConfig = InputParameters.loadWorkerConfig(config, workerParamFile);
+
             System.out.println("[MultiStart] Launching Worker-" + threadId +
                               " (time remaining: " + String.format("%.1f", workerTimeRemaining) + "s)");
 
             // Workers get remaining time for adaptive parameters + global timing for eta alignment
-            AILSII worker = new AILSII(instance, config, sharedEliteSet,
+            AILSII worker = new AILSII(instance, workerConfig, sharedEliteSet,
                                        seed, threadId, threadMonitor, optimalValue, workerTimeRemaining,
                                        globalStartTime, globalTimeLimit);
 
@@ -291,8 +296,13 @@ public class MultiStartAILS implements Runnable {
                     break;
                 }
 
+                // Load worker-specific configuration (same as initial launch)
+                int workerIndex = i + 1; // Worker 1, 2, 3, 4...
+                String workerParamFile = "parameters_worker" + workerIndex + ".txt";
+                Config workerConfig = InputParameters.loadWorkerConfig(config, workerParamFile);
+
                 // Launch new worker with remaining time for adaptive parameters + global timing for eta alignment
-                AILSII newWorker = new AILSII(instance, config, sharedEliteSet,
+                AILSII newWorker = new AILSII(instance, workerConfig, sharedEliteSet,
                                               seed, threadId, threadMonitor, optimalValue, timeRemaining,
                                               globalStartTime, globalTimeLimit);
 

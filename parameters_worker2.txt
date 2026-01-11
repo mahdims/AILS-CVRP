@@ -1,0 +1,16 @@
+# AILS-II Worker 2 Parameters - Regret-Based Strategy
+#
+# Strategy: Route removal with sophisticated regret-based insertion
+#
+# This file contains ONLY worker-specific parameter overrides.
+# All shared parameters (elite set, PR, multi-start, etc.) are inherited from parameters.txt
+
+# ============================================================
+# Worker 2 Specific Overrides
+# ============================================================
+
+# Perturbation operators - Route-focused removal
+perturbation=RouteRemoval,Sequential,Concentric
+
+# Insertion heuristics - Regret-based for smarter insertion
+insertionHeuristics=Cost,Distance,Regret2,RegretRandom
